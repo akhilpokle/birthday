@@ -90,6 +90,9 @@ ARIA for a widget pattern arrives with the widget.
 .bday_bg        Assets/background.svg (placeholder), object-fit: cover
 .bday_overlay   linear-gradient #172733 → #457699 (85% alpha),
                 backdrop-filter: blur(16px) + -webkit- prefix
+.bday_card      Assets/card.png — the final message, centred, above the overlay
+                and behind the balloons, so popping them uncovers it. No reveal
+                logic; the layering does the work.
 ```
 
 **Click interaction.** Clicking a balloon runs it through frames 1→5 at `frameMs`

@@ -4,6 +4,13 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>PREVIEW ONLY — not for handover</title>
+<!-- Public Sans, loaded by the HARNESS ONLY. The real Liferay theme is expected
+     to provide it; the fragment must never pull a webfont itself, since a strict
+     CSP would block the CDN. If production turns out not to have it, the font
+     needs self-hosting — see BACKLOG.md. -->
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Public+Sans:ital,wght@0,400;0,700&display=swap" rel="stylesheet" />
 <style>
   /* Stand-in for the host intranet: different font, and it styles bare `img`,
      so a scoping leak in the component shows up here. */

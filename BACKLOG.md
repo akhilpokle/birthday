@@ -30,8 +30,23 @@ the code, not just the content.
       restores every popped balloon.
 - [ ] **How is it dismissed?** There's no close control, no Esc handler, no
       `open()`/`close()`. `destroy()` exists but nothing calls it.
-- [ ] **What's the actual content?** There is no headline, copy, CTA or user data —
-      only balloons. No destination URLs collected.
+- [ ] **"Timothy" is hardcoded.** The heading reads "Happy birthday Timothy!" —
+      the name must come from Liferay user context or every employee gets
+      Timothy's card. Same for anything date-dependent ("this month").
+- [ ] **Copy needs sign-off.** Two typos were corrected on the way in — "Dont" →
+      "Don't" and a stray space in "Timothy !". Flagging rather than burying:
+      revert either if they were deliberate.
+- [ ] **Public Sans is assumed, not loaded.** The fragment declares the family and
+      falls back to `system-ui`; only `preview.html` actually fetches the webfont,
+      from the Google CDN. Confirm the real theme serves Public Sans — if not it
+      needs self-hosting, since a strict CSP will block the CDN.
+- [ ] **Card text doesn't scale with the card.** Sizes are fixed px per spec while
+      the card is fluid (`min(1040px, 100vw - 80px)`), so the type is
+      proportionally larger on a narrow window. Measured clearance above the
+      printed balloons: 144px at 1280 wide, 116px at the 1024 floor — fits, but
+      the margin shrinks as the window narrows. Longer copy or a bigger name would
+      eat it.
+- [ ] **No CTA on the card.** Still no destination URLs collected.
 - [ ] **Analytics** — no events dispatched on open, pop, or dismiss.
 - [ ] **Browser floor** beyond the 1024px width decision. Decides whether
       `backdrop-filter`, `clip-path` and `inset` are safe as written (all are used).
@@ -107,6 +122,10 @@ the code, not just the content.
 
 ## 4. Accessibility
 
+- [x] ~~The final message is an image.~~ Resolved: the card artwork stays
+      decorative (`alt=""`) and the message is live text over it, so it's
+      readable, translatable and selectable-by-AT. Heading is `h2`, not `h1`,
+      because the host page owns the `h1` — revisit if this becomes its own page.
 - [ ] **The interaction is mouse-only.** Balloons are `aria-hidden` decorative
       `<img>`s with no keyboard path. Deliberate — 96 tab stops would be worse than
       none — but it means keyboard and screen-reader users cannot pop anything.

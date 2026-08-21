@@ -32,6 +32,62 @@
   backdrop-filter: blur(16px);
 }
 
+/* The message card. Sits above the overlay and below the balloons, so it's
+   uncovered as they pop rather than needing any reveal logic of its own.
+   No z-index on purpose: it and .bday_overlay are both auto, so DOM order puts
+   it above the overlay, while the balloons' inline z-index (1..Z_LEVELS) keeps
+   them in front. Giving this a z-index would break that. */
+.bday_card {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  /* The copy inside is specced at fixed px, so the card can't shrink much before
+     the text outgrows the card's blank upper area. 80px of viewport margin keeps
+     it ~944px at the 1024 floor, which the text still fits. */
+  width: min(1040px, calc(100vw - 80px));
+  /* Never intercept a balloon click — the balloons sit in front of this. */
+  pointer-events: none;
+}
+
+.bday_card-art { display: block; width: 100%; height: auto; }
+
+/* Sits in the card's blank upper band, above the printed balloons. */
+.bday_card-body {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  padding: 48px 48px 0;
+  /* Public Sans is expected from the Liferay theme — this fragment must not
+     pull a webfont itself (a strict CSP would block the CDN). preview.html
+     loads it separately so the harness renders what production will. */
+  font-family: 'Public Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  color: #172733;
+}
+
+.bday_card-title {
+  font-size: 32px;
+  font-weight: 700;
+  line-height: 120%;
+  letter-spacing: -0.1px;
+}
+
+/* Descendant-scoped so it outranks the `.bday_root p` reset below, which is
+   (0,1,1) and would otherwise flatten this margin back to zero. */
+.bday_root .bday_card-text {
+  /* Gap between heading and body isn't in the spec — 12px is assumed. */
+  margin-top: 12px;
+  font-size: 20px;
+  font-weight: 400;
+  line-height: 150%;
+  letter-spacing: -0.1px;
+}
+
+/* Host defence: the intranet styles bare h2/p, and our harness proves it by
+   setting `p { margin: 0 0 18px }`. Without this the copy inherits it. */
+.bday_root h2, .bday_root p { margin: 0; }
+
 /* Confetti draws above the balloons but must never eat a click.
    The z-index is load-bearing: .bday_balloons doesn't create a stacking context,
    so the balloons' inline z-index (1..Z_LEVELS) competes directly with this
@@ -154,6 +210,18 @@
        should exist at all is an open question in BACKLOG.md §1. -->
   <img class="bday_bg" src="Assets/background.svg" alt="" aria-hidden="true" />
   <div class="bday_overlay"></div>
+  <!-- The final message, revealed as the balloons in front of it are popped.
+       The artwork is decorative; the message itself is live text so it stays
+       readable, translatable and screen-reader accessible. -->
+  <div class="bday_card" id="bday_card">
+    <img class="bday_card-art" src="Assets/card.png" alt="" aria-hidden="true" />
+    <div class="bday_card-body">
+      <!-- h2 not h1: this is a fragment inside a host page that has its own h1.
+           PLACEHOLDER NAME — "Timothy" must come from Liferay user context. -->
+      <h2 class="bday_card-title">Happy birthday Timothy!</h2>
+      <p class="bday_card-text">Sending you best wishes for your special day and the years ahead. Don't forget to take your birthday leave this month!</p>
+    </div>
+  </div>
   <div class="bday_balloons" id="bday_balloons" aria-hidden="true"></div>
   <canvas class="bday_confetti" id="bday_confetti" aria-hidden="true"></canvas>
 
