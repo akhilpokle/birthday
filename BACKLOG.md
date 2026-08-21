@@ -58,6 +58,15 @@ the code, not just the content.
 
 ## 2. Known risks in the code
 
+- [ ] **Confetti is suppressed entirely under `prefers-reduced-motion: reduce`,**
+      and managed Windows machines commonly have "Show animations" disabled by
+      policy — which sets it. On such a machine the balloons vanish instantly
+      with no frame sequence, no per-pop confetti and no finale. This is
+      currently the most likely explanation for "the confetti doesn't show on my
+      work laptop". Run `window.bday.diagnose()` there to confirm.
+      **Decide:** keep suppressing (correct by the letter of the guideline, but
+      the whole experience is lost), or keep a reduced, non-travelling version.
+
 - [ ] **`position: fixed` may not resolve against the viewport.** Conversion
       playbook §7: `fixed` resolves against the nearest ancestor with a `transform`,
       `filter` or `perspective`, and CMS themes commonly have one. If the real theme

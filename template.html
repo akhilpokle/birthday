@@ -345,6 +345,9 @@
   // result reading as rows and columns. Much above 0.5 and cells start trading
   // places, which clumps and leaves holes.
   function grid(w, h) {
+    // A zero measurement makes maxBalloons*h/w NaN, and `row < NaN` is false, so
+    // the fill loop silently produces nothing. Bail explicitly instead.
+    if (!(w > 0) || !(h > 0)) return { cols: 0, rows: 0 };
     var rows = Math.max(1, Math.round(Math.sqrt(CONFIG.maxBalloons * h / w)));
     var cols = Math.max(1, Math.floor(CONFIG.maxBalloons / rows));
     return { cols: cols, rows: rows };
@@ -422,9 +425,10 @@
   // finale. Each owns its particles, its rAF loop and its own MAX_PARTICLES
   // budget, so a huge finale can't starve the per-pop bursts.
   function createConfettiLayer(canvasEl, lazy) {
-    // alpha:false is not an option here — the layers must composite over what's
-    // behind them — but desynchronized lets the compositor skip a sync point.
-    var ctx = canvasEl.getContext("2d", { desynchronized: true });
+    // Plain 2d context. `desynchronized: true` was tried here as an
+    // optimisation and removed: on some managed/integrated-GPU setups it
+    // renders nothing at all, which is not a trade worth a sync point.
+    var ctx = canvasEl.getContext("2d");
     var particles = [];
     var rafId = null;
     var lastFrameTs = 0;
@@ -564,7 +568,11 @@
 
     return {
       resize: resize, burst: burst, clear: clear,
-      count: function () { return particles.length; }
+      count: function () { return particles.length; },
+      info: function () {
+        return { sized: sized, backing: canvasEl.width + "x" + canvasEl.height,
+                 particles: particles.length, looping: rafId !== null };
+      }
     };
   }
 
@@ -850,6 +858,10 @@
   function applyResize() {
     resizeRaf = null;
     var w = layer.clientWidth, h = layer.clientHeight;   // read once, not 4x
+    // Measured zero: the fragment is hidden, or laid out later than init. Do
+    // nothing and leave lastW/lastH untouched, so the ResizeObserver below
+    // still sees a change when real dimensions arrive.
+    if (!(w > 0) || !(h > 0)) return;
     var g = grid(w, h);
     // Cell size tracks the viewport continuously, so refill whenever the
     // dimensions change at all — not only when the row/column count does.
@@ -893,6 +905,17 @@
   sizeCanvas();
   applyResize();
   window.addEventListener("resize", onResize);
+
+  // A window resize event is not enough. The fragment can be mounted inside a
+  // hidden container (Liferay tab, accordion) or simply lay out after this
+  // script runs — in both cases it measures 0 at init and no resize event ever
+  // follows, so it would stay empty forever. Watching the element itself is the
+  // playbook's "measure on open, not on init".
+  var ro = null;
+  if (window.ResizeObserver) {
+    ro = new ResizeObserver(onResize);
+    ro.observe(root);
+  }
   layer.addEventListener("click", onClick);
   root.addEventListener("pointermove", onPointerMove);
   root.addEventListener("pointerout", onPointerOut);
@@ -920,8 +943,49 @@
     balloonsRemaining: balloonsRemaining,
     pointerModes: POINTER_MODES,
     setPointer: setPointer,
+
+    // Run window.bday.diagnose() in the console on a machine where the confetti
+    // doesn't appear. It fires a test burst and reports whether anything was
+    // actually painted, which separates "suppressed on purpose" from "broken".
+    diagnose: function () {
+      var canvasOk = true, err = null;
+      try {
+        var t = document.createElement("canvas");
+        t.width = t.height = 8;
+        var tc = t.getContext("2d");
+        tc.fillStyle = "#fff";
+        tc.fillRect(0, 0, 8, 8);
+        canvasOk = tc.getImageData(0, 0, 1, 1).data[3] === 255;
+      } catch (e) { canvasOk = false; err = e.message; }
+
+      var before = frontConfetti.count();
+      frontConfetti.burst({ position: { x: layer.clientWidth / 2, y: layer.clientHeight / 2 } });
+      var after = frontConfetti.count();
+
+      var report = {
+        // The single most likely reason for silent confetti on a managed
+        // machine: Windows "Show animations" off makes this true, and every
+        // burst is suppressed by design.
+        prefersReducedMotion: reduceMq.matches,
+        burstEmittedParticles: after - before,
+        canvas2dWorks: canvasOk,
+        canvasError: err,
+        devicePixelRatio: window.devicePixelRatio || 1,
+        front: frontConfetti.info(),
+        back: backConfetti.info(),
+        liveBalloons: liveBalloons,
+        finaleAlreadyFired: finaleFired,
+        pointerMode: CONFIG.pointer,
+        confettiCount: CONFIG.confettiCount,
+        finaleCount: CONFIG.finaleCount,
+        userAgent: navigator.userAgent
+      };
+      try { console.table ? console.table(report) : console.log(report); } catch (e) {}
+      return report;
+    },
     destroy: function () {
       window.removeEventListener("resize", onResize);
+      if (ro) { ro.disconnect(); ro = null; }
       layer.removeEventListener("click", onClick);
       root.removeEventListener("pointermove", onPointerMove);
       root.removeEventListener("pointerout", onPointerOut);
