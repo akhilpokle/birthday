@@ -1,0 +1,9 @@
+<svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Cursor hotspot is the needle tip at 3,3 — see the cursor rule in template.html.
+       Dark outlines throughout so the pin stays legible over both the navy
+       overlay and a bright yellow balloon. -->
+  <polygon points="3,3 32,26 26,32" fill="#FFFFFF" stroke="#172733" stroke-width="1.5" stroke-linejoin="round"/>
+  <circle cx="35" cy="35" r="10" fill="#172733"/>
+  <circle cx="35" cy="35" r="8.5" fill="#FF7E65"/>
+  <circle cx="31.5" cy="31.5" r="2.4" fill="#FFFFFF" fill-opacity="0.55"/>
+</svg>

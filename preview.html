@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PREVIEW ONLY — not for handover</title>
+<style>
+  /* Stand-in for the host intranet: different font, and it styles bare `img`,
+     so a scoping leak in the component shows up here. */
+  body { margin: 0; font-family: Georgia, serif; background: #eee; }
+  img { border: 4px solid magenta; }
+
+  /* ── tuning panel — TEST TOOL, never shipped ───────────────────────────
+     Sits above the component's z-index: 9999 root. */
+  #tuner {
+    position: fixed; top: 12px; right: 12px; z-index: 100000;
+    width: 250px; padding: 12px 14px 14px;
+    background: rgba(12, 20, 28, 0.92);
+    color: #e8eef4;
+    font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    border-radius: 10px;
+    box-shadow: 0 8px 28px rgba(0,0,0,.45);
+    -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+  }
+  #tuner h2 {
+    margin: 0 0 2px; font-size: 11px; letter-spacing: .09em;
+    text-transform: uppercase; color: #8fb4d4; font-family: inherit;
+  }
+  #tuner .note { margin: 0 0 10px; color: #6e8ba6; font-size: 10px; }
+  #tuner .hdr { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+
+  /* Close affordance. Sized to a comfortable hit target rather than the glyph. */
+  #hideTuner {
+    flex: 0 0 auto; width: 24px; height: 24px; margin: -3px -4px 0 0;
+    display: flex; align-items: center; justify-content: center;
+    font: 16px/1 ui-monospace, Menlo, Consolas, monospace;
+    color: #8fb4d4; background: transparent; border: 0; border-radius: 6px;
+    cursor: pointer;
+  }
+  #hideTuner:hover { background: #24384a; color: #e8eef4; }
+  #hideTuner:focus-visible { outline: 2px solid #7fd4a8; outline-offset: 1px; }
+
+  /* Reopen pill — without it, hiding the panel would mean reloading to tune again. */
+  #showTuner {
+    position: fixed; top: 12px; right: 12px; z-index: 100000;
+    padding: 7px 11px; cursor: pointer;
+    font: 11px/1 ui-monospace, Menlo, Consolas, monospace; letter-spacing: .06em;
+    color: #cfe2f2; background: rgba(12, 20, 28, 0.92);
+    border: 1px solid #3a5468; border-radius: 999px;
+    box-shadow: 0 4px 16px rgba(0,0,0,.4);
+  }
+  #showTuner:hover { background: #24384a; }
+  #showTuner:focus-visible { outline: 2px solid #7fd4a8; outline-offset: 2px; }
+  #showTuner[hidden], #tuner[hidden] { display: none; }
+  #tuner label { display: block; margin: 9px 0 0; }
+  #tuner .row { display: flex; justify-content: space-between; gap: 8px; }
+  #tuner .val { color: #7fd4a8; }
+  #tuner input[type=range] { width: 100%; margin: 3px 0 0; accent-color: #4aa3df; }
+  #tuner .btns { display: flex; gap: 6px; margin-top: 12px; }
+  /* Scoped to .btns so the header's × doesn't inherit the flex:1 pill styling. */
+  #tuner .btns button {
+    flex: 1; padding: 6px 8px; font: inherit; cursor: pointer;
+    color: #e8eef4; background: #24384a;
+    border: 1px solid #3a5468; border-radius: 6px;
+  }
+  #tuner .btns button:hover { background: #2f4860; }
+  #tuner .btns button:focus-visible { outline: 2px solid #7fd4a8; outline-offset: 2px; }
+</style>
+</head>
+<body>
+  <div id="component-mount"></div>
+
+  <div id="tuner" hidden>
+    <div class="hdr">
+      <h2>Tuning panel</h2>
+      <button type="button" id="hideTuner" aria-label="Hide tuning panel"
+              aria-controls="tuner" title="Hide (Esc)">&times;</button>
+    </div>
+    <p class="note">preview.html only — not part of the fragment</p>
+    <div class="body" id="tunerBody"></div>
+    <div class="btns">
+      <button type="button" id="resetField">Reset field</button>
+      <button type="button" id="copyCfg">Copy config</button>
+    </div>
+  </div>
+
+  <button type="button" id="showTuner" hidden
+          aria-label="Show tuning panel" aria-expanded="false">tune</button>
+
+<script>
+  // Pulls template.html in live so preview and template can't drift apart.
+  // Needs http:// — fetch is blocked on file://.
+  fetch("template.html")
+    .then(function (r) { return r.text(); })
+    .then(function (html) {
+      var mount = document.getElementById("component-mount");
+      mount.innerHTML = html;
+      // innerHTML parses <script> but never executes it. Re-create each one so
+      // the component actually initialises.
+      mount.querySelectorAll("script").forEach(function (old) {
+        var s = document.createElement("script");
+        if (old.src) s.src = old.src; else s.textContent = old.textContent;
+        old.parentNode.replaceChild(s, old);
+      });
+      buildTuner();
+    });
+
+  // Each slider maps to one key of window.bday.config.
+  var CONTROLS = [
+    { key: "maxBalloons", label: "Balloon count", min: 5,   max: 100, step: 1 },
+    { key: "balloonSize", label: "Balloon size",  min: 40,  max: 320, step: 4,    unit: "px" },
+    { key: "jitterRatio", label: "Scatter",       min: 0,   max: 0.5, step: 0.01 },
+    { key: "maxTilt",     label: "Tilt",          min: 0,   max: 30,  step: 1,    unit: "°" },
+    { key: "frameMs",     label: "Frame gap",     min: 30,  max: 400, step: 10,   unit: "ms" },
+    { key: "wavePxPerMs", label: "Wave speed",    min: 0.2, max: 6,   step: 0.1,  unit: "px/ms" },
+    { group: "Confetti" },
+    { key: "confettiCount",    label: "Count",    min: 0,   max: 120, step: 2 },
+    { key: "confettiSize",     label: "Size",     min: 0.3, max: 4,   step: 0.1,  unit: "×" },
+    { key: "confettiVelocity", label: "Velocity", min: 40,  max: 700, step: 10 },
+    { key: "confettiGravity",  label: "Gravity",  min: 0,   max: 1600, step: 20 },
+    { key: "confettiFade",     label: "Fade out", min: 0,   max: 1,   step: 1,
+      format: function (v) { return +v ? "yes" : "no"; } }
+  ];
+
+  // Throttled so dragging a confetti slider fires one burst per ~180ms rather
+  // than one per input event.
+  var burstAt = 0;
+  function previewBurst() {
+    var now = Date.now();
+    if (now - burstAt < 180) return;
+    burstAt = now;
+    window.bday.confetti({
+      position: { x: innerWidth / 2, y: innerHeight * 0.55 }
+    });
+  }
+
+  function buildTuner() {
+    var api = window.bday;
+    var panel = document.getElementById("tuner");
+    if (!api || !api.config) {
+      panel.hidden = false;
+      document.getElementById("tunerBody").textContent =
+        "window.bday.config not found — component failed to init.";
+      return;
+    }
+
+    var body = document.getElementById("tunerBody");
+    body.textContent = "";
+
+    CONTROLS.forEach(function (c) {
+      if (c.group) {
+        var h = document.createElement("h2");
+        h.textContent = c.group;
+        h.style.marginTop = "14px";
+        body.appendChild(h);
+        return;
+      }
+      var id = "tune_" + c.key;
+      var label = document.createElement("label");
+      label.setAttribute("for", id);
+
+      var row = document.createElement("span");
+      row.className = "row";
+      var name = document.createElement("span");
+      name.textContent = c.label;
+      var val = document.createElement("span");
+      val.className = "val";
+      row.appendChild(name);
+      row.appendChild(val);
+
+      var input = document.createElement("input");
+      input.type = "range";
+      input.id = id;
+      input.min = c.min; input.max = c.max; input.step = c.step;
+      input.value = api.config[c.key];
+
+      function show() {
+        val.textContent = c.format ? c.format(input.value)
+                                   : input.value + (c.unit || "");
+      }
+      show();
+
+      // Confetti values are read at burst time, so they don't need a rebuild —
+      // and rebuilding would wipe the burst you're trying to look at.
+      var isConfetti = c.key.indexOf("confetti") === 0;
+
+      input.addEventListener("input", function () {
+        show();
+        var v = parseFloat(input.value);
+        if (isConfetti) {
+          window.bday.config[c.key] = v;
+          previewBurst();
+        } else {
+          var patch = {};
+          patch[c.key] = v;
+          window.bday.setConfig(patch);
+        }
+      });
+
+      label.appendChild(row);
+      label.appendChild(input);
+      body.appendChild(label);
+    });
+
+    // Move focus with the toggle so keyboard users aren't stranded on a
+    // button that just disappeared.
+    var showBtn = document.getElementById("showTuner");
+    function setPanel(open) {
+      panel.hidden = !open;
+      showBtn.hidden = open;
+      showBtn.setAttribute("aria-expanded", String(open));
+      (open ? document.getElementById("hideTuner") : showBtn).focus();
+    }
+    document.getElementById("hideTuner").addEventListener("click", function () {
+      setPanel(false);
+    });
+    showBtn.addEventListener("click", function () { setPanel(true); });
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape" && !panel.hidden) setPanel(false);
+    });
+
+    document.getElementById("resetField").addEventListener("click", function () {
+      window.bday.reset();
+    });
+
+    document.getElementById("copyCfg").addEventListener("click", function (e) {
+      var txt = JSON.stringify(window.bday.config, null, 2);
+      navigator.clipboard.writeText(txt).then(function () {
+        e.target.textContent = "Copied";
+        setTimeout(function () { e.target.textContent = "Copy config"; }, 1200);
+      }, function () {
+        console.log(txt);   // clipboard blocked — fall back to the console
+        e.target.textContent = "See console";
+        setTimeout(function () { e.target.textContent = "Copy config"; }, 1600);
+      });
+    });
+
+    panel.hidden = false;
+  }
+</script>
+</body>
+</html>

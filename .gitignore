@@ -1,0 +1,14 @@
+# Files kept on disk but never committed.
+# _local/ holds things moved out of Assets/ during the GitHub Pages prep:
+# the source zip (already extracted), the __MACOSX cruft, and tinified (1)/,
+# which contains images belonging to a different project.
+_local/
+
+# Editor / tooling
+.claude/
+
+# Archives and macOS metadata never belong in the repo
+*.zip
+__MACOSX/
+.DS_Store
+Thumbs.db

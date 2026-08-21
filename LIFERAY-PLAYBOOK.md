@@ -1,0 +1,189 @@
+# Playbook — 2027 birthday takeover
+
+Project-specific build guide. Companion to `LIFERAY-BUILD-PLAYBOOK.md` (greenfield)
+and `LIFERAY-CONVERSION-PLAYBOOK.md` (React/Figma → Liferay), both of which live in
+other project folders.
+
+**Where this deviates from them:** the build playbook's §2 tells you to lay down a
+"day-one skeleton" containing a screen-reader helper, a double-init guard, a
+reduced-motion helper and a public API before writing any feature. On this project
+that produced ~60 lines of scaffolding guarding behaviour that didn't exist —
+an init guard on a script with nothing to initialise, a `dur()` helper with no
+animation to time, a `destroy()` for a component nobody could open or close.
+
+This playbook replaces that rule. Everything else in both companions still stands.
+
+---
+
+## 1. The rule — add it when the feature exists, not before
+
+Write the smallest thing that makes the current step work. When a step introduces a
+behaviour, add that behaviour's machinery **in the same commit as the behaviour**.
+
+The build playbook's justification is that this stuff is "painful to add later."
+That's true of *scoping decisions* — a prefix retrofitted across 800 lines is a bad
+day. It is **not** true of an init guard or a `destroy()` method. Those are ten
+lines, they're mechanical, and adding one to a file that has actual state is easier
+than maintaining an empty one that nobody has tested.
+
+Untested scaffolding is not insurance. It's just code that looks like insurance.
+
+---
+
+## 2. What triggers what
+
+Don't add the left column until the right column is true.
+
+| Add this | Only once… |
+| -------- | ---------- |
+| `<script>` block at all | there is behaviour to run |
+| double-init guard (`data-*-init`) | the script mutates state, attaches listeners, or injects nodes |
+| `destroy()` / public API | the host needs to open, close, or tear it down |
+| `prefers-reduced-motion` handling | something actually animates |
+| `.sr-only` helper | there is visually-hidden text to hold |
+| `box-sizing` / `p` / `*` resets | an element exists that the reset changes |
+| focus trap, Esc handler, `role="dialog"` | it becomes a dismissible overlay |
+| `PANELS`-style content array | there is more than one of the thing |
+
+The right-hand column is a fact about the file, not a plan. "We'll probably animate
+it later" does not trigger the row.
+
+---
+
+## 3. The exception — host defence is always day one
+
+This is the line that keeps §1 from becoming "skip the hard parts."
+
+Two categories are **not** scaffolding and go in from the first line:
+
+**Namespacing.** Every class, `id`, SVG `id` and global gets the `bday_` prefix.
+Retrofitting this is the genuinely expensive one. See conversion playbook §1.
+
+**Scoped resets that defend against the host theme.** These look like boilerplate
+and aren't. Concrete case from this build: the harness styles bare
+`img { border: 4px solid magenta }`, exactly as the real intranet might. Our
+background image inherited it, gained 8px, and stopped covering its container.
+The fix is one line — but only a *scoped* line:
+
+```css
+.bday_root img { display: block; border: 0; margin: 0; }
+```
+
+The test for whether a reset is earned: **does the host have a rule that would reach
+this element?** If yes, it's defence. If it's tidying markup you control, it's
+scaffolding — leave it out.
+
+Accessibility follows the same split. Semantic elements (`<button>`, not
+`<div onclick>`) are day one, because retrofitting them means rewriting the markup.
+ARIA for a widget pattern arrives with the widget.
+
+---
+
+## 4. Current state
+
+`template.html` — the single source of truth. Steps 1–2 complete:
+
+```
+.bday_root      position: fixed; inset: 0; z-index: 9999
+                fixed+inset so it covers the viewport wherever it's mounted,
+                rather than inheriting a host container's width
+.bday_bg        Assets/background.svg (placeholder), object-fit: cover
+.bday_overlay   linear-gradient #172733 → #457699 (85% alpha),
+                backdrop-filter: blur(16px) + -webkit- prefix
+```
+
+**Click interaction.** Clicking a balloon runs it through frames 1→5 at `frameMs`
+intervals, then hides it, and pops every balloon of the same colour as an outward
+wave — delay is `distance / wavePxPerMs`, so balloons at a similar radius go
+together and the chain reads as one expanding front rather than a queue. (Current
+values are in the tuning-panel note below; the code reads them from `CONFIG`, so
+prose here deliberately doesn't repeat the numbers.)
+
+- Popped cells are recorded at *click* time, not when the animation ends, so a
+  resize mid-wave can't resurrect a balloon that's already on its way out.
+- Frames 2–5 are preloaded at init (20 images, ~6MB — see the asset note below).
+- `prefers-reduced-motion: reduce` skips the frame sequence and the wave stagger
+  entirely; matching balloons just disappear. **This is a judgement call** — the
+  alternative is keeping the in-place frame swap and dropping only the stagger.
+  Worth a second opinion.
+- The balloons are `aria-hidden` and mouse-only. 96 keyboard tab stops would be
+  worse than none, but that means the interaction is currently **unavailable to
+  keyboard and screen-reader users**. Fine for pure decoration; if popping ever
+  does something meaningful, this needs a real control.
+
+**Confetti.** Each balloon emits a burst on frame 3 — the shatter frame, since
+nothing should escape an intact balloon. Colours are sampled from the frame-1
+artwork per colour, so the burst matches the balloon that threw it.
+
+This is **our own canvas particle system, not confetti.js**. The parameter names
+(`count`, `size`, `velocity`, `fade`, `position`) deliberately mirror that library
+so the concepts transfer, but it ships via npm/CDN and a Liferay CSP would block
+the script — see the no-dependencies rule. `MAX_PARTICLES` (1400) caps the total
+across concurrent bursts; a full 26-balloon wave at a high count would otherwise
+stack up. The rAF loop stops itself when the last particle dies rather than
+spinning idle.
+
+**Tuning panel.** `preview.html` carries 11 sliders driving `window.bday.config`
+via `setConfig()`. `×` or Esc hides it; a `tune` pill brings it back. The defaults
+in `CONFIG` are the values signed off on 2026-08-20 — 208px balloons, 10° tilt,
+30ms frames, 0.8px/ms wave, 38 particles at 0.8× / 370 velocity / 240 gravity. Balloon settings rebuild the field; confetti settings are read
+at burst time and fire a sample burst instead, so tuning them doesn't wipe the
+thing you're looking at. "Copy config" puts the current values on the clipboard.
+The panel is **preview-only** — per §1, dev UI does not ship in the fragment. What
+does ship is the small `config` / `setConfig` / `reset` / `confetti` API it drives.
+
+**Open items** live in `BACKLOG.md` — the invented gradient alpha, asset sizing and
+frame registration, the unanswered brief questions, verification gaps, packaging.
+Add to that file rather than leaving notes here: **this playbook records decisions
+made, the backlog records decisions pending.**
+
+---
+
+## 5. Verification
+
+Per conversion playbook §5 — measure, don't eyeball. What that caught here:
+
+- the magenta border leak in §3 (computed `borderTopWidth` on our own image)
+- `preview.html` was missing `<meta name="viewport">`, so mobile emulation fell back
+  to a 980px layout viewport. **The fragment can't fix this** — the meta tag belongs
+  to the host Liferay page. Confirm it's there during integration.
+
+Assert at minimum: root rect equals viewport, background rect equals root,
+`document.documentElement.scrollWidth <= innerWidth`, zero console errors. Check at
+1280×800 and 1024×768 — see §6 for why nothing narrower.
+
+Screenshots were unavailable throughout this session (the browser pane wasn't
+compositing). Measurement covered behaviour, but **colour and visual weight have not
+been confirmed by eye** — anything appearance-related still needs a human look.
+
+---
+
+## 6. Viewport floor — 1024px
+
+**Do not design or test below 1024px.** This is a desktop intranet takeover; phone
+widths are out of scope.
+
+- Verify at 1280×800 and 1024×768. Don't bother with 360px / 375px.
+- No breakpoints, stacking rules or mobile-only behaviour under 1024px.
+- Don't add a mobile fallback "just in case" — that's the §1 rule again.
+
+This **overrides** the companion playbooks, both of which list "renders correctly at
+~360px wide" in their definition of done. Ignore that line on this project.
+
+Below the floor the layout is simply unsupported — it won't crash, it just isn't a
+case we design for. The balloon fill in §4 caps at 100 regardless of viewport, so
+narrow widths degrade to a sparse field rather than breaking.
+
+---
+
+## 7. Running the preview
+
+```bash
+npx --yes serve -l 5757 .
+```
+
+Then open `http://localhost:5757/preview.html`. It must be served over `http://` —
+the harness `fetch`es `template.html` so the two can't drift, and `fetch` is blocked
+on `file://`.
+
+`preview.html` is a test file. It is not part of the handover.

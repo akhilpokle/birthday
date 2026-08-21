@@ -1,0 +1,658 @@
+<style>
+/* Fixed + inset:0 so the takeover covers the viewport no matter where in the
+   host page's DOM the fragment gets mounted. */
+.bday_root {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  overflow: hidden;
+}
+
+/* The host intranet styles bare `img` (border, margin). Without this reset those
+   land on our background and knock it out of alignment — caught in preview.html. */
+.bday_root img { display: block; border: 0; margin: 0; }
+
+.bday_bg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.bday_overlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    to bottom,
+    rgba(23, 39, 51, 0.85) 0%,
+    rgba(69, 118, 153, 0.85) 100%
+  );
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+}
+
+/* Confetti draws above the balloons but must never eat a click.
+   The z-index is load-bearing: .bday_balloons doesn't create a stacking context,
+   so the balloons' inline z-index (1..Z_LEVELS) competes directly with this
+   canvas in the root's context. Without a value above Z_LEVELS the confetti
+   renders *behind* the balloon field. */
+.bday_confetti {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 200;
+}
+
+/* ── pin cursor ───────────────────────────────────────────────────────
+   Replaces the crosshair. A targeting reticle plus click-to-shatter read as a
+   shooting gallery, which is the wrong register for a birthday; a pin is the
+   fairground balloon-pop tool instead. Hotspot 3,3 is the needle tip.
+   Set natively rather than as a tracked element: no rAF, no lag, and nothing
+   left to align now the rules are gone. */
+.bday_root { cursor: url('Assets/pin.svg') 3 3, auto; }
+
+/* ── crosshair pointer — DISABLED, kept for reference ─────────────────
+   Superseded by the pin cursor above. To restore: uncomment this block, the
+   .bday_pointer markup, and the crosshair section of the script, then drop the
+   .bday_root cursor rule.
+
+.bday_pointer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 300;
+}
+.bday_pointer[hidden] { display: none; }
+
+.bday_crosshair {
+  position: absolute;
+  left: 0; top: 0;
+  width: 126px;
+  height: 126px;
+}
+
+The four segments run from the crosshair out to the viewport edges. They stop at
+the svg's bounding box, so they meet its arms without overlapping the circle
+inside it. The colour had to match the stroke in Assets/crosshair.svg, since the
+rules and the svg's arms read as one continuous line.
+
+.bday_rule { position: absolute; left: 0; top: 0; background: #FF7E65; }
+.bday_rule-h { height: 4px; }
+.bday_rule-v { width: 4px; }
+
+The system cursor was hidden only once the replacement was actually running, set
+by JS on first pointermove, so a script failure could not leave the user with no
+cursor at all. Fine pointers only: on touch there is nothing to replace.
+
+@media (hover: hover) and (pointer: fine) {
+  .bday_root[data-bday-cursor="1"],
+  .bday_root[data-bday-cursor="1"] .bday_balloon { cursor: none; }
+}
+*/
+
+/* Decorative layer — never intercepts clicks from whatever lands on top later. */
+.bday_balloons {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+/* left/top place the centre; the transform does the centring so rotation
+   pivots on the balloon's middle rather than its top-left corner. */
+.bday_balloon {
+  position: absolute;
+  /* Driven by a custom property so size can change without a refill. */
+  width: var(--bday-balloon-size, 160px);
+  height: var(--bday-balloon-size, 160px);
+  /* The layer is pointer-events:none so gaps stay click-through; the balloons
+     opt back in.
+     No clip-path here. An inscribed circle() looks like it would only remove the
+     transparent corners, but the shapes differ per colour — Yellow is a star and
+     Red is broader than it is tall — so it sliced the tips off: 6.1% of Red's
+     opaque pixels, 2.9% of Blue's, 2.2% of Yellow's. Any circle large enough to
+     spare them covers the whole box anyway. The cost is that a click on a
+     transparent corner still hits this element; see BACKLOG for alpha hit-testing. */
+  pointer-events: auto;
+  /* Inherit the root's pin rather than switching to a hand — the pin is itself
+     the affordance, and a cursor swap on hover would undercut it. */
+  cursor: inherit;
+}
+
+/* Once it's popping it must stop being a click target, or a second click
+   restarts the sequence mid-way. */
+.bday_balloon[data-bday-popping="1"] { pointer-events: none; }
+</style>
+
+<div class="bday_root" id="bday_root">
+  <!-- Placeholder dashboard, not a real screenshot — see Assets/background.svg.
+       The real intranet capture is kept out of the repo; whether this layer
+       should exist at all is an open question in BACKLOG.md §1. -->
+  <img class="bday_bg" src="Assets/background.svg" alt="" aria-hidden="true" />
+  <div class="bday_overlay"></div>
+  <div class="bday_balloons" id="bday_balloons" aria-hidden="true"></div>
+  <canvas class="bday_confetti" id="bday_confetti" aria-hidden="true"></canvas>
+
+  <!-- Crosshair pointer — DISABLED, kept for reference. See the matching CSS
+       and script blocks.
+  <div class="bday_pointer" id="bday_pointer" aria-hidden="true" hidden>
+    <span class="bday_rule bday_rule-h" id="bday_ruleL"></span>
+    <span class="bday_rule bday_rule-h" id="bday_ruleR"></span>
+    <span class="bday_rule bday_rule-v" id="bday_ruleT"></span>
+    <span class="bday_rule bday_rule-v" id="bday_ruleB"></span>
+    <img class="bday_crosshair" id="bday_crosshair" src="Assets/crosshair.svg" alt="" />
+  </div>
+  -->
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var root = document.getElementById("bday_root");
+  if (!root) return;
+
+  // Liferay can run fragment JS twice (page edit mode, SPA navigation).
+  // Same node -> no-op. New node -> tear the old instance down first, or its
+  // resize listener outlives it.
+  if (root.getAttribute("data-bday-init") === "1") return;
+  if (window.bday && window.bday.root !== root && typeof window.bday.destroy === "function") {
+    try { window.bday.destroy(); } catch (err) { /* ignore */ }
+  }
+  root.setAttribute("data-bday-init", "1");
+
+  var layer = document.getElementById("bday_balloons");
+
+  var COLORS = ["Blue", "Green", "Red", "Sage", "Yellow"];
+  var FRAMES   = 5;    // "<Colour> 1".."<Colour> 5" — intact to dispersed
+  var Z_LEVELS = 100;  // distinct stacking depths, so overlaps interleave
+
+  // Every tunable value in one object so the preview harness can drive them
+  // through window.bday.setConfig(). Defaults here are the shipped values —
+  // the panel is a test tool, these are what the fragment renders with.
+  var CONFIG = {
+    maxBalloons:  100,  // hard ceiling — denser than this reads as noise
+    balloonSize:  208,  // px
+    jitterRatio:  0.45, // offset from cell centre, as a fraction of the cell
+    maxTilt:      10,   // degrees, applied as -maxTilt..+maxTilt
+    frameMs:      30,   // gap between pop frames; a pop runs 4*frameMs = 120ms
+    wavePxPerMs:  0.8,  // chain speed: delay = distance / this
+
+    // Confetti, per popped balloon. Parameter names follow confetti.js
+    // (count/size/velocity/fade/position) but this is our own implementation —
+    // the library ships via npm/CDN, which a Liferay CSP would block.
+    confettiCount:    38,   // particles per pop
+    confettiSize:     0.8,  // multiplier on the base particle box
+    confettiVelocity: 370,  // initial speed, px/sec
+    confettiFade:     0,    // 0 = fall off screen, 1 = fade in place
+    confettiGravity:  240   // px/sec^2
+  };
+
+  // Sampled from the frame-1 artwork so the burst matches the balloon that
+  // threw it, rather than an approximated hex.
+  var CONFETTI_PALETTE = {
+    Blue:   ["#97def7", "#7ab8ee", "#6381bc"],
+    Green:  ["#a7ee3d", "#67cc14", "#31a901"],
+    Red:    ["#fde7f2", "#fc7fae", "#fc436f"],
+    Sage:   ["#93eacd", "#49c094", "#2ba680"],
+    Yellow: ["#fcdc4f", "#f9c427", "#e0a900"]
+  };
+
+  var MAX_PARTICLES = 1400;  // ceiling across all bursts — a full wave of 26
+                             // balloons at a high count would otherwise stack up
+
+  var reduceMq = window.matchMedia("(prefers-reduced-motion: reduce)");
+
+  function srcFor(color, frame) {
+    return "Assets/" + encodeURIComponent(color + " " + frame) + ".png";
+  }
+
+  // Derive the grid from the cap rather than from a fixed spacing: pick the
+  // row count that keeps cells closest to square for this viewport, then take
+  // as many columns as the budget allows. Guarantees cols*rows <= maxBalloons
+  // at any width instead of scaling with the viewport.
+  //
+  // jitterRatio note: the grid exists only to keep the field evenly spread. At
+  // 0.45 a balloon lands almost anywhere in its cell, which is what stops the
+  // result reading as rows and columns. Much above 0.5 and cells start trading
+  // places, which clumps and leaves holes.
+  function grid(w, h) {
+    var rows = Math.max(1, Math.round(Math.sqrt(CONFIG.maxBalloons * h / w)));
+    var cols = Math.max(1, Math.floor(CONFIG.maxBalloons / rows));
+    return { cols: cols, rows: rows };
+  }
+
+  // Deterministic value in [0,1) from a cell + salt. Seeded rather than
+  // Math.random() so a resize only adds or removes balloons — the ones already
+  // on screen keep their colour, tilt and jitter instead of reshuffling.
+  function rand(col, row, salt) {
+    var h = (col * 374761393 + row * 668265263 + salt * 1274126177) >>> 0;
+    h = Math.imul(h ^ (h >>> 13), 1274126177) >>> 0;
+    return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+  }
+
+  // Cells the user has already popped, keyed "col,row". Written at click time
+  // rather than when the animation ends, so a resize mid-wave can't resurrect a
+  // balloon that's already on its way out.
+  var popped = Object.create(null);
+
+  // Every pending timeout, so destroy() can cancel the tail of a wave instead of
+  // letting it fire against detached nodes.
+  var timers = [];
+  function later(fn, ms) {
+    var id = setTimeout(function () {
+      var i = timers.indexOf(id);
+      if (i > -1) timers.splice(i, 1);
+      fn();
+    }, ms);
+    timers.push(id);
+    return id;
+  }
+
+  // Frames 2-5 are only fetched when a balloon pops. Without warming them the
+  // first pop of each colour animates against an empty cache and stutters.
+  var preloaded = [];
+  function preloadFrames() {
+    for (var c = 0; c < COLORS.length; c++) {
+      for (var f = 2; f <= FRAMES; f++) {
+        var im = new Image();
+        im.src = srcFor(COLORS[c], f);
+        preloaded.push(im);   // hold a reference so it isn't collected
+      }
+    }
+  }
+
+  // ── confetti ──────────────────────────────────────────────────────────
+  // Self-contained canvas particle system. Same option names as confetti.js
+  // so the concepts transfer, but no external dependency.
+
+  var canvas = document.getElementById("bday_confetti");
+  var ctx = canvas.getContext("2d");
+  var particles = [];
+  var rafId = null;
+  var lastFrameTs = 0;
+
+  function sizeCanvas() {
+    var dpr = window.devicePixelRatio || 1;
+    canvas.width = Math.round(layer.clientWidth * dpr);
+    canvas.height = Math.round(layer.clientHeight * dpr);
+    // Draw in CSS pixels; the transform handles the device ratio.
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
+  function confetti(opts) {
+    if (reduceMq.matches) return;
+    opts = opts || {};
+    var pos = opts.position || { x: layer.clientWidth / 2, y: layer.clientHeight / 2 };
+    var count = opts.count != null ? opts.count : CONFIG.confettiCount;
+    var size = opts.size != null ? opts.size : CONFIG.confettiSize;
+    var velocity = opts.velocity != null ? opts.velocity : CONFIG.confettiVelocity;
+    var fade = opts.fade != null ? opts.fade : !!CONFIG.confettiFade;
+    var palette = opts.color || CONFETTI_PALETTE.Blue;
+
+    var room = MAX_PARTICLES - particles.length;
+    if (room <= 0) return;
+    if (count > room) count = room;
+
+    for (var i = 0; i < count; i++) {
+      // Even angular spread with a random nudge, so bursts look radial rather
+      // than clumped the way pure random angles do at low counts.
+      var a = (i / count) * Math.PI * 2 + (Math.random() - 0.5) * 0.6;
+      var speed = velocity * (0.45 + Math.random() * 0.75);
+      particles.push({
+        x: pos.x, y: pos.y,
+        vx: Math.cos(a) * speed,
+        vy: Math.sin(a) * speed,
+        w: (5 + Math.random() * 5) * size,
+        h: (3 + Math.random() * 5) * size,
+        rot: Math.random() * Math.PI,
+        vrot: (Math.random() - 0.5) * 12,
+        color: palette[Math.floor(Math.random() * palette.length)],
+        life: 0,
+        ttl: 1.1 + Math.random() * 0.9,
+        fade: fade
+      });
+    }
+    startLoop();
+  }
+
+  function step(ts) {
+    if (!lastFrameTs) lastFrameTs = ts;
+    // Clamp dt so a background tab (throttled to ~1Hz) doesn't teleport every
+    // particle off screen the moment it regains focus.
+    var dt = Math.min((ts - lastFrameTs) / 1000, 0.05);
+    lastFrameTs = ts;
+
+    ctx.clearRect(0, 0, layer.clientWidth, layer.clientHeight);
+
+    for (var i = particles.length - 1; i >= 0; i--) {
+      var p = particles[i];
+      p.life += dt;
+      p.vy += CONFIG.confettiGravity * dt;
+      p.vx *= 0.99;                       // light air drag
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      p.rot += p.vrot * dt;
+
+      var alpha = 1;
+      if (p.fade) {
+        alpha = 1 - p.life / p.ttl;
+        if (alpha <= 0) { particles.splice(i, 1); continue; }
+      } else if (p.y - p.h > layer.clientHeight) {
+        particles.splice(i, 1); continue;   // fell off the bottom
+      }
+
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.translate(p.x, p.y);
+      ctx.rotate(p.rot);
+      ctx.fillStyle = p.color;
+      ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+      ctx.restore();
+    }
+
+    if (particles.length) {
+      rafId = requestAnimationFrame(step);
+    } else {
+      rafId = null;
+      lastFrameTs = 0;
+    }
+  }
+
+  function startLoop() {
+    if (rafId === null) {
+      lastFrameTs = 0;
+      rafId = requestAnimationFrame(step);
+    }
+  }
+
+  function clearConfetti() {
+    if (rafId !== null) cancelAnimationFrame(rafId);
+    rafId = null;
+    lastFrameTs = 0;
+    particles.length = 0;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+  }
+
+  /* ── crosshair pointer — DISABLED, kept for reference ──────────────────
+     Replaced by the native pin cursor (see the .bday_root rule in the CSS).
+     To restore: uncomment this block, its markup, its CSS, and the four
+     commented lines further down (two addEventListener, two removeEventListener
+     plus the cancelAnimationFrame, and the drawPointer call in onResize).
+
+  // The svg is 126x126 with its centre at 63,63 and 4px arms running from the
+  // bounding box inward to the circle. So the rules stop 63px from the pointer:
+  // exactly where the svg's own arms start, making one continuous line that the
+  // circle interrupts. Change these together with the asset.
+  var CROSSHAIR_PX = 126;
+  var RULE_PX      = 4;
+  var GAP          = CROSSHAIR_PX / 2;
+
+  var ptrLayer = document.getElementById("bday_pointer");
+  var crosshair = document.getElementById("bday_crosshair");
+  var ruleL = document.getElementById("bday_ruleL");
+  var ruleR = document.getElementById("bday_ruleR");
+  var ruleT = document.getElementById("bday_ruleT");
+  var ruleB = document.getElementById("bday_ruleB");
+
+  var ptrX = 0, ptrY = 0, ptrRaf = null, ptrLive = false;
+
+  function drawPointer() {
+    ptrRaf = null;
+    var w = layer.clientWidth, h = layer.clientHeight;
+    var half = RULE_PX / 2;
+
+    // Horizontal pair — both sit on the pointer's y, offset by half the rule so
+    // the 4px band is centred on it (matching the svg's centred stroke).
+    ruleL.style.width = Math.max(0, ptrX - GAP) + "px";
+    ruleL.style.transform = "translate(0px," + (ptrY - half) + "px)";
+
+    var rx = ptrX + GAP;
+    ruleR.style.width = Math.max(0, w - rx) + "px";
+    ruleR.style.transform = "translate(" + rx + "px," + (ptrY - half) + "px)";
+
+    ruleT.style.height = Math.max(0, ptrY - GAP) + "px";
+    ruleT.style.transform = "translate(" + (ptrX - half) + "px,0px)";
+
+    var by = ptrY + GAP;
+    ruleB.style.height = Math.max(0, h - by) + "px";
+    ruleB.style.transform = "translate(" + (ptrX - half) + "px," + by + "px)";
+
+    crosshair.style.transform =
+      "translate(" + (ptrX - GAP) + "px," + (ptrY - GAP) + "px)";
+  }
+
+  function onPointerMove(e) {
+    // Touch would light the crosshair up at the last tap and strand it there.
+    if (e.pointerType === "touch") return;
+    var r = layer.getBoundingClientRect();
+    ptrX = e.clientX - r.left;
+    ptrY = e.clientY - r.top;
+    if (!ptrLive) {
+      ptrLive = true;
+      ptrLayer.hidden = false;
+      root.setAttribute("data-bday-cursor", "1");
+    }
+    // Batch to a frame: a high-polling-rate mouse fires several moves per frame.
+    if (ptrRaf === null) ptrRaf = requestAnimationFrame(drawPointer);
+  }
+
+  function onPointerOut(e) {
+    // relatedTarget null == left the window rather than moved to a child.
+    if (e.relatedTarget) return;
+    ptrLive = false;
+    ptrLayer.hidden = true;
+    root.removeAttribute("data-bday-cursor");
+  }
+
+  ── end disabled crosshair block ── */
+
+  // Runs one balloon through frames 2..5, then takes it out of the layout.
+  function popOne(img) {
+    if (reduceMq.matches) {
+      img.style.display = "none";
+      return;
+    }
+    var color = img.getAttribute("data-bday-color");
+    for (var f = 2; f <= FRAMES; f++) {
+      (function (frame) {
+        later(function () {
+          if (!img.isConnected) return;
+          img.src = srcFor(color, frame);
+          // Fire on the shatter frame, not frame 1 — the balloon has to break
+          // before anything can come out of it.
+          if (frame === 3) {
+            var r = img.getBoundingClientRect();
+            var lr = layer.getBoundingClientRect();
+            confetti({
+              position: { x: r.left + r.width / 2 - lr.left,
+                          y: r.top + r.height / 2 - lr.top },
+              color: CONFETTI_PALETTE[color] || CONFETTI_PALETTE.Blue
+            });
+          }
+        }, (frame - 1) * CONFIG.frameMs);
+      })(f);
+    }
+    later(function () {
+      if (img.isConnected) img.style.display = "none";
+    }, FRAMES * CONFIG.frameMs);
+  }
+
+  // Pops every balloon sharing the clicked one's colour, scheduled by distance
+  // so the pop travels outward as a wave. Delay is proportional to distance
+  // rather than to rank, so balloons at a similar radius go together and the
+  // chain reads as one expanding front.
+  function popWave(origin) {
+    var color = origin.getAttribute("data-bday-color");
+    var o = origin.getBoundingClientRect();
+    var ox = o.left + o.width / 2;
+    var oy = o.top + o.height / 2;
+
+    var all = layer.querySelectorAll('.bday_balloon[data-bday-color="' + color + '"]');
+
+    for (var i = 0; i < all.length; i++) {
+      var el = all[i];
+      if (el.getAttribute("data-bday-popping") === "1") continue;
+
+      var r = el.getBoundingClientRect();
+      var dx = r.left + r.width / 2 - ox;
+      var dy = r.top + r.height / 2 - oy;
+      var delay = reduceMq.matches ? 0 : Math.sqrt(dx * dx + dy * dy) / CONFIG.wavePxPerMs;
+
+      el.setAttribute("data-bday-popping", "1");
+      popped[el.getAttribute("data-bday-cell")] = true;
+
+      (function (target) {
+        later(function () { popOne(target); }, delay);
+      })(el);
+    }
+  }
+
+  function onClick(e) {
+    var img = e.target;
+    if (!img || !img.classList || !img.classList.contains("bday_balloon")) return;
+    popWave(img);
+  }
+
+  function fill() {
+    var w = layer.clientWidth;
+    var h = layer.clientHeight;
+
+    var g = grid(w, h);
+    var cols = g.cols, rows = g.rows;
+    var cellW = w / cols, cellH = h / rows;
+
+    var frag = document.createDocumentFragment();
+
+    for (var row = 0; row < rows; row++) {
+      for (var col = 0; col < cols; col++) {
+        // A popped cell stays popped. Without this a resize rebuilds the field
+        // and every balloon the user already popped comes back.
+        if (popped[col + "," + row]) continue;
+
+        // Brick layout — distributes more evenly than a square grid at the same
+        // count. Rows shift a quarter-cell in alternating directions rather than
+        // every other row shifting right, which would bleed the field off the
+        // right edge while leaving the left flush.
+        var stagger = (row % 2 ? 1 : -1) * (cellW / 4);
+
+        // +0.5 puts the balloon at the cell's centre, so the field is inset
+        // from the edges rather than half-clipped against them.
+        var x = (col + 0.5) * cellW + stagger +
+                (rand(col, row, 1) * 2 - 1) * cellW * CONFIG.jitterRatio;
+        var y = (row + 0.5) * cellH +
+                (rand(col, row, 2) * 2 - 1) * cellH * CONFIG.jitterRatio;
+
+        var color = COLORS[Math.floor(rand(col, row, 3) * COLORS.length)];
+        var tilt = (rand(col, row, 4) * 2 - 1) * CONFIG.maxTilt;
+
+        // Random depth rather than DOM order, so the overlaps don't all fall
+        // the same way down-and-right and give the grid away.
+        var z = 1 + Math.floor(rand(col, row, 5) * Z_LEVELS);
+
+        var img = document.createElement("img");
+        img.className = "bday_balloon";
+        img.src = srcFor(color, 1);
+        img.alt = "";
+        img.setAttribute("aria-hidden", "true");
+        img.setAttribute("data-bday-color", color);
+        img.setAttribute("data-bday-cell", col + "," + row);
+        img.style.left = x.toFixed(1) + "px";
+        img.style.top = y.toFixed(1) + "px";
+        img.style.zIndex = z;
+        img.style.transform =
+          "translate(-50%, -50%) rotate(" + tilt.toFixed(2) + "deg)";
+
+        frag.appendChild(img);
+      }
+    }
+
+    layer.textContent = "";
+    layer.appendChild(frag);
+  }
+
+  // Only refill when the cell count would actually change. Without this, every
+  // pixel of a drag-resize rebuilds a few hundred nodes.
+  var lastCols = -1, lastRows = -1, lastW = -1, lastH = -1;
+  function onResize() {
+    var g = grid(layer.clientWidth, layer.clientHeight);
+    // Cell size tracks the viewport continuously, so refill whenever the
+    // dimensions change at all — not only when the row/column count does.
+    if (g.cols === lastCols && g.rows === lastRows &&
+        layer.clientWidth === lastW && layer.clientHeight === lastH) return;
+    lastCols = g.cols;
+    lastRows = g.rows;
+    lastW = layer.clientWidth;
+    lastH = layer.clientHeight;
+    sizeCanvas();   // canvas backing store must track the viewport too
+    // Disabled with the crosshair: rule lengths were measured off the viewport,
+    // so they went stale on a resize that didn't move the mouse.
+    // if (ptrLive) drawPointer();
+    fill();
+  }
+
+  function applySize() {
+    root.style.setProperty("--bday-balloon-size", CONFIG.balloonSize + "px");
+  }
+
+  // Rebuild from scratch. Tuning is a deliberate act, so it also clears the
+  // popped set — cell keys stop meaning the same thing once the grid changes,
+  // and a half-popped field would make the new settings hard to judge.
+  function rebuild() {
+    for (var i = 0; i < timers.length; i++) clearTimeout(timers[i]);
+    timers.length = 0;
+    popped = Object.create(null);
+    clearConfetti();
+    applySize();
+    lastCols = lastRows = lastW = lastH = -1;
+    onResize();
+  }
+
+  applySize();
+  sizeCanvas();
+  onResize();
+  window.addEventListener("resize", onResize);
+  layer.addEventListener("click", onClick);
+  // Disabled with the crosshair:
+  // root.addEventListener("pointermove", onPointerMove);
+  // root.addEventListener("pointerout", onPointerOut);
+  preloadFrames();
+
+  window.bday = {
+    root: root,
+    config: CONFIG,
+    // Merge a patch of CONFIG values and rebuild. Used by preview.html's
+    // tuning panel; also lets an integrator retune without editing the script.
+    setConfig: function (patch) {
+      for (var k in patch) {
+        if (Object.prototype.hasOwnProperty.call(patch, k) &&
+            Object.prototype.hasOwnProperty.call(CONFIG, k)) {
+          CONFIG[k] = patch[k];
+        }
+      }
+      rebuild();
+      return CONFIG;
+    },
+    reset: rebuild,
+    confetti: confetti,   // exposed so the panel can preview a burst on demand
+    destroy: function () {
+      window.removeEventListener("resize", onResize);
+      layer.removeEventListener("click", onClick);
+      // Disabled with the crosshair:
+      // root.removeEventListener("pointermove", onPointerMove);
+      // root.removeEventListener("pointerout", onPointerOut);
+      // if (ptrRaf !== null) cancelAnimationFrame(ptrRaf);
+      // ptrRaf = null;
+      for (var i = 0; i < timers.length; i++) clearTimeout(timers[i]);
+      timers.length = 0;
+      clearConfetti();
+      if (root.parentNode) root.parentNode.removeChild(root);
+      window.bday = null;
+    }
+  };
+})();
+</script>
