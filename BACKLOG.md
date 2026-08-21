@@ -141,6 +141,14 @@ build: screenshots timed out all session, timers were throttled to ~1Hz, and
       2.9% of Blue's, 2.2% of Yellow's, because the shapes differ per colour
       (Yellow is a star, Red is broad). Removed 2026-08-20.
 - [ ] **Retina untested** — canvas DPR scaling was only exercised at `dpr: 1`.
+- [ ] **Hover scale never observed animating.** `:hover` can't be forced from
+      script and the hidden tab has no real pointer, so the 100ms-in / 50ms-out
+      transition is unverified in motion. The rules and the composed transform
+      (scale 1 → 1.1 with tilt preserved) are both confirmed.
+- [ ] **A hovered balloon can scale up behind its neighbours.** Depth is random
+      and fixed, so growing by 1.1 doesn't bring it forward. Raising z-index on
+      hover would fix it but fights the random stacking; worth a look once the
+      effect can actually be seen.
 - [ ] **Never tested on the real Liferay theme, or on Safari/iPadOS** (iPad is ≥1024
       so it's in scope).
 

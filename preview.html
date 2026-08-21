@@ -56,6 +56,20 @@
   #tuner .row { display: flex; justify-content: space-between; gap: 8px; }
   #tuner .val { color: #7fd4a8; }
   #tuner input[type=range] { width: 100%; margin: 3px 0 0; accent-color: #4aa3df; }
+  /* Pointer switcher — a segmented radio group. Radios rather than buttons
+     because it's a single choice, so arrow keys move between options. */
+  #tuner .seg { display: flex; margin-top: 5px; border-radius: 7px; overflow: hidden;
+                border: 1px solid #3a5468; }
+  #tuner .seg label {
+    flex: 1; margin: 0; text-align: center; padding: 6px 4px; cursor: pointer;
+    background: #1b2b3a; color: #a8c0d4; border-left: 1px solid #3a5468;
+  }
+  #tuner .seg label:first-of-type { border-left: 0; }
+  #tuner .seg input { position: absolute; opacity: 0; pointer-events: none; }
+  #tuner .seg input:checked + span { color: #0d1720; }
+  #tuner .seg label:has(input:checked) { background: #7fd4a8; color: #0d1720; }
+  #tuner .seg label:has(input:focus-visible) { outline: 2px solid #7fd4a8; outline-offset: -2px; }
+
   #tuner .btns { display: flex; gap: 6px; margin-top: 12px; }
   /* Scoped to .btns so the header's × doesn't inherit the flex:1 pill styling. */
   #tuner .btns button {
@@ -134,6 +148,43 @@
     });
   }
 
+  var POINTER_LABELS = { pin: "Pin", crosshair: "Crosshair", "default": "Normal" };
+
+  function buildPointerSwitcher(body, api) {
+    var h = document.createElement("h2");
+    h.textContent = "Pointer";
+    body.appendChild(h);
+
+    var seg = document.createElement("div");
+    seg.className = "seg";
+    seg.setAttribute("role", "radiogroup");
+    seg.setAttribute("aria-label", "Pointer style");
+
+    (api.pointerModes || ["pin", "crosshair", "default"]).forEach(function (mode) {
+      var label = document.createElement("label");
+      var input = document.createElement("input");
+      input.type = "radio";
+      input.name = "bday_pointer";
+      input.value = mode;
+      input.checked = api.config.pointer === mode;
+
+      var text = document.createElement("span");
+      text.textContent = POINTER_LABELS[mode] || mode;
+
+      // Applies instantly and does NOT rebuild the field, so switching mid-demo
+      // doesn't wipe balloons the user already popped.
+      input.addEventListener("change", function () {
+        if (input.checked) window.bday.setPointer(mode);
+      });
+
+      label.appendChild(input);
+      label.appendChild(text);
+      seg.appendChild(label);
+    });
+
+    body.appendChild(seg);
+  }
+
   function buildTuner() {
     var api = window.bday;
     var panel = document.getElementById("tuner");
@@ -146,6 +197,8 @@
 
     var body = document.getElementById("tunerBody");
     body.textContent = "";
+
+    buildPointerSwitcher(body, api);
 
     CONTROLS.forEach(function (c) {
       if (c.group) {

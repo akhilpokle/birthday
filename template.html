@@ -46,18 +46,28 @@
   z-index: 200;
 }
 
-/* ── pin cursor ───────────────────────────────────────────────────────
-   Replaces the crosshair. A targeting reticle plus click-to-shatter read as a
-   shooting gallery, which is the wrong register for a birthday; a pin is the
-   fairground balloon-pop tool instead. Hotspot 3,3 is the needle tip.
-   Set natively rather than as a tracked element: no rAF, no lag, and nothing
-   left to align now the rules are gone. */
-.bday_root { cursor: url('Assets/pin.svg') 3 3, auto; }
+/* ── pointer modes ────────────────────────────────────────────────────
+   Driven by data-bday-pointer on the root, set via window.bday.setPointer().
+   Balloons use cursor:inherit, so setting it here reaches them too.
 
-/* ── crosshair pointer — DISABLED, kept for reference ─────────────────
-   Superseded by the pin cursor above. To restore: uncomment this block, the
-   .bday_pointer markup, and the crosshair section of the script, then drop the
-   .bday_root cursor rule.
+   "pin"       native cursor, hotspot 3,3 at the needle tip. No rAF, no lag.
+   "crosshair" reticle + full-viewport rules, tracked in JS below. Reads as a
+               targeting scope, which is a questionable register for a birthday
+               — kept switchable so the difference can be judged side by side.
+   "default"   the host page's own cursor, untouched. */
+.bday_root[data-bday-pointer="pin"] { cursor: url('Assets/pin.svg') 3 3, auto; }
+/* "default" leaves the arrow on the backdrop and shows the click cursor on the
+   balloons — the conventional signal that a thing is clickable. */
+.bday_root[data-bday-pointer="default"] { cursor: default; }
+.bday_root[data-bday-pointer="default"] .bday_balloon { cursor: pointer; }
+
+/* The system cursor is hidden only once the crosshair is actually tracking
+   (data-bday-cursor, set on first pointermove), so a script failure can't leave
+   the user with no cursor. Fine pointers only: on touch there's nothing to
+   replace. */
+@media (hover: hover) and (pointer: fine) {
+  .bday_root[data-bday-pointer="crosshair"][data-bday-cursor="1"] { cursor: none; }
+}
 
 .bday_pointer {
   position: absolute;
@@ -71,28 +81,18 @@
 .bday_crosshair {
   position: absolute;
   left: 0; top: 0;
-  width: 126px;
+  width: 126px;   /* must match CROSSHAIR_PX and the svg's viewBox */
   height: 126px;
 }
 
-The four segments run from the crosshair out to the viewport edges. They stop at
-the svg's bounding box, so they meet its arms without overlapping the circle
-inside it. The colour had to match the stroke in Assets/crosshair.svg, since the
-rules and the svg's arms read as one continuous line.
-
+/* The four segments run from the crosshair out to the viewport edges. They stop
+   at the svg's bounding box, so they meet its arms without overlapping the
+   circle inside it. The colour must match the stroke in Assets/crosshair.svg —
+   the rules and the arms read as one continuous line, so a mismatch shows as a
+   seam at the join. */
 .bday_rule { position: absolute; left: 0; top: 0; background: #FF7E65; }
 .bday_rule-h { height: 4px; }
 .bday_rule-v { width: 4px; }
-
-The system cursor was hidden only once the replacement was actually running, set
-by JS on first pointermove, so a script failure could not leave the user with no
-cursor at all. Fine pointers only: on touch there is nothing to replace.
-
-@media (hover: hover) and (pointer: fine) {
-  .bday_root[data-bday-cursor="1"],
-  .bday_root[data-bday-cursor="1"] .bday_balloon { cursor: none; }
-}
-*/
 
 /* Decorative layer — never intercepts clicks from whatever lands on top later. */
 .bday_balloons {
@@ -118,13 +118,33 @@ cursor at all. Fine pointers only: on touch there is nothing to replace.
      spare them covers the whole box anyway. The cost is that a click on a
      transparent corner still hits this element; see BACKLOG for alpha hit-testing. */
   pointer-events: auto;
-  /* Inherit the root's pin rather than switching to a hand — the pin is itself
-     the affordance, and a cursor swap on hover would undercut it. */
+  /* Inherit the active pointer mode. In "pin" the pin is itself the affordance,
+     so a hand on hover would undercut it; "default" overrides this below. */
   cursor: inherit;
+
+  /* Composed here rather than inline: an inline transform would outrank the
+     :hover rule below, and hardcoding it would lose each balloon's own tilt.
+     The script sets --bday-tilt per balloon; --bday-scale is the hover hook. */
+  transform: translate(-50%, -50%)
+             rotate(var(--bday-tilt, 0deg))
+             scale(var(--bday-scale, 1));
+  /* Default duration is the hover-*out*; :hover overrides it for the way in. */
+  transition: transform 50ms ease-out;
+}
+
+/* Guarded so a touch device can't get stuck in the hovered state after a tap. */
+@media (hover: hover) and (pointer: fine) {
+  .bday_balloon:hover { --bday-scale: 1.1; transition-duration: 100ms; }
+}
+
+/* Keep the affordance, drop the movement. */
+@media (prefers-reduced-motion: reduce) {
+  .bday_balloon, .bday_balloon:hover { transition-duration: 0ms; }
 }
 
 /* Once it's popping it must stop being a click target, or a second click
-   restarts the sequence mid-way. */
+   restarts the sequence mid-way. pointer-events:none also drops any hover
+   scale, so a popping balloon animates its frames at true size. */
 .bday_balloon[data-bday-popping="1"] { pointer-events: none; }
 </style>
 
@@ -137,8 +157,7 @@ cursor at all. Fine pointers only: on touch there is nothing to replace.
   <div class="bday_balloons" id="bday_balloons" aria-hidden="true"></div>
   <canvas class="bday_confetti" id="bday_confetti" aria-hidden="true"></canvas>
 
-  <!-- Crosshair pointer — DISABLED, kept for reference. See the matching CSS
-       and script blocks.
+  <!-- Only populated in crosshair mode; hidden otherwise. -->
   <div class="bday_pointer" id="bday_pointer" aria-hidden="true" hidden>
     <span class="bday_rule bday_rule-h" id="bday_ruleL"></span>
     <span class="bday_rule bday_rule-h" id="bday_ruleR"></span>
@@ -146,7 +165,6 @@ cursor at all. Fine pointers only: on touch there is nothing to replace.
     <span class="bday_rule bday_rule-v" id="bday_ruleB"></span>
     <img class="bday_crosshair" id="bday_crosshair" src="Assets/crosshair.svg" alt="" />
   </div>
-  -->
 </div>
 
 <script>
@@ -189,7 +207,10 @@ cursor at all. Fine pointers only: on touch there is nothing to replace.
     confettiSize:     0.8,  // multiplier on the base particle box
     confettiVelocity: 370,  // initial speed, px/sec
     confettiFade:     0,    // 0 = fall off screen, 1 = fade in place
-    confettiGravity:  240   // px/sec^2
+    confettiGravity:  240,  // px/sec^2
+
+    // "pin" | "crosshair" | "default" — change via setPointer(), not setConfig()
+    pointer: "pin"
   };
 
   // Sampled from the frame-1 artwork so the burst matches the balloon that
@@ -378,12 +399,10 @@ cursor at all. Fine pointers only: on touch there is nothing to replace.
     ctx.clearRect(0, 0, canvas.width, canvas.height);
   }
 
-  /* ── crosshair pointer — DISABLED, kept for reference ──────────────────
-     Replaced by the native pin cursor (see the .bday_root rule in the CSS).
-     To restore: uncomment this block, its markup, its CSS, and the four
-     commented lines further down (two addEventListener, two removeEventListener
-     plus the cancelAnimationFrame, and the drawPointer call in onResize).
-
+  // ── crosshair pointer ─────────────────────────────────────────────────
+  // Only does work while CONFIG.pointer === "crosshair"; the pin and default
+  // modes are pure CSS and need none of this running.
+  //
   // The svg is 126x126 with its centre at 63,63 and 4px arms running from the
   // bounding box inward to the circle. So the rules stop 63px from the pointer:
   // exactly where the svg's own arms start, making one continuous line that the
@@ -427,6 +446,7 @@ cursor at all. Fine pointers only: on touch there is nothing to replace.
   }
 
   function onPointerMove(e) {
+    if (CONFIG.pointer !== "crosshair") return;
     // Touch would light the crosshair up at the last tap and strand it there.
     if (e.pointerType === "touch") return;
     var r = layer.getBoundingClientRect();
@@ -449,7 +469,24 @@ cursor at all. Fine pointers only: on touch there is nothing to replace.
     root.removeAttribute("data-bday-cursor");
   }
 
-  ── end disabled crosshair block ── */
+  var POINTER_MODES = ["pin", "crosshair", "default"];
+
+  // Cursor changes take effect immediately — unlike setConfig(), which rebuilds
+  // the balloon field. Rebuilding to swap a cursor would clear the popped set
+  // and wipe whatever the user was mid-way through.
+  function setPointer(mode) {
+    if (POINTER_MODES.indexOf(mode) === -1) return CONFIG.pointer;
+    CONFIG.pointer = mode;
+    root.setAttribute("data-bday-pointer", mode);
+    if (mode !== "crosshair") {
+      // Leaving crosshair mode: park the layer and hand the cursor back.
+      ptrLive = false;
+      ptrLayer.hidden = true;
+      root.removeAttribute("data-bday-cursor");
+      if (ptrRaf !== null) { cancelAnimationFrame(ptrRaf); ptrRaf = null; }
+    }
+    return mode;
+  }
 
   // Runs one balloon through frames 2..5, then takes it out of the layout.
   function popOne(img) {
@@ -564,8 +601,9 @@ cursor at all. Fine pointers only: on touch there is nothing to replace.
         img.style.left = x.toFixed(1) + "px";
         img.style.top = y.toFixed(1) + "px";
         img.style.zIndex = z;
-        img.style.transform =
-          "translate(-50%, -50%) rotate(" + tilt.toFixed(2) + "deg)";
+        // Only the tilt is set inline; the full transform is composed in CSS so
+        // the :hover scale can apply on top of it.
+        img.style.setProperty("--bday-tilt", tilt.toFixed(2) + "deg");
 
         frag.appendChild(img);
       }
@@ -589,9 +627,9 @@ cursor at all. Fine pointers only: on touch there is nothing to replace.
     lastW = layer.clientWidth;
     lastH = layer.clientHeight;
     sizeCanvas();   // canvas backing store must track the viewport too
-    // Disabled with the crosshair: rule lengths were measured off the viewport,
-    // so they went stale on a resize that didn't move the mouse.
-    // if (ptrLive) drawPointer();
+    // Rule lengths are measured off the viewport, so they go stale on a resize
+    // that doesn't move the mouse.
+    if (ptrLive) drawPointer();
     fill();
   }
 
@@ -617,9 +655,9 @@ cursor at all. Fine pointers only: on touch there is nothing to replace.
   onResize();
   window.addEventListener("resize", onResize);
   layer.addEventListener("click", onClick);
-  // Disabled with the crosshair:
-  // root.addEventListener("pointermove", onPointerMove);
-  // root.addEventListener("pointerout", onPointerOut);
+  root.addEventListener("pointermove", onPointerMove);
+  root.addEventListener("pointerout", onPointerOut);
+  setPointer(CONFIG.pointer);
   preloadFrames();
 
   window.bday = {
@@ -639,14 +677,15 @@ cursor at all. Fine pointers only: on touch there is nothing to replace.
     },
     reset: rebuild,
     confetti: confetti,   // exposed so the panel can preview a burst on demand
+    pointerModes: POINTER_MODES,
+    setPointer: setPointer,
     destroy: function () {
       window.removeEventListener("resize", onResize);
       layer.removeEventListener("click", onClick);
-      // Disabled with the crosshair:
-      // root.removeEventListener("pointermove", onPointerMove);
-      // root.removeEventListener("pointerout", onPointerOut);
-      // if (ptrRaf !== null) cancelAnimationFrame(ptrRaf);
-      // ptrRaf = null;
+      root.removeEventListener("pointermove", onPointerMove);
+      root.removeEventListener("pointerout", onPointerOut);
+      if (ptrRaf !== null) cancelAnimationFrame(ptrRaf);
+      ptrRaf = null;
       for (var i = 0; i < timers.length; i++) clearTimeout(timers[i]);
       timers.length = 0;
       clearConfetti();

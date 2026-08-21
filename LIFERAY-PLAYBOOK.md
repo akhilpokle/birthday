@@ -123,8 +123,18 @@ across concurrent bursts; a full 26-balloon wave at a high count would otherwise
 stack up. The rAF loop stops itself when the last particle dies rather than
 spinning idle.
 
-**Tuning panel.** `preview.html` carries 11 sliders driving `window.bday.config`
-via `setConfig()`. `×` or Esc hides it; a `tune` pill brings it back. The defaults
+**Pointer.** Three modes, switchable at runtime via `window.bday.setPointer()`:
+`pin` (default, native cursor), `crosshair` (JS-tracked reticle plus
+full-viewport rules), `default` (host cursor untouched). Driven by
+`data-bday-pointer` on the root. Deliberately *not* part of `setConfig()` —
+that rebuilds the field and would wipe the popped set just to swap a cursor.
+The crosshair listeners stay attached in all modes and early-return, so the pin
+and default modes run no per-move JS at all. Which one ships is still open: the
+crosshair reads as a targeting scope, which is a questionable register for a
+birthday.
+
+**Tuning panel.** `preview.html` carries 11 sliders plus a pointer switcher,
+driving `window.bday.config` via `setConfig()`. `×` or Esc hides it; a `tune` pill brings it back. The defaults
 in `CONFIG` are the values signed off on 2026-08-20 — 208px balloons, 10° tilt,
 30ms frames, 0.8px/ms wave, 38 particles at 0.8× / 370 velocity / 240 gravity. Balloon settings rebuild the field; confetti settings are read
 at burst time and fire a sample burst instead, so tuning them doesn't wipe the
