@@ -42,10 +42,9 @@
   left: 50%;
   top: 50%;
   transform: translate(-50%, -50%);
-  /* The copy inside is specced at fixed px, so the card can't shrink much before
-     the text outgrows the card's blank upper area. 80px of viewport margin keeps
-     it ~944px at the 1024 floor, which the text still fits. */
-  width: min(1040px, calc(100vw - 80px));
+  /* Fixed 702px per spec. The min() only guards windows narrower than the
+     supported 1024 floor — at 1024 the card is still a full 702px. */
+  width: min(702px, calc(100vw - 80px));
   /* Never intercept a balloon click — the balloons sit in front of this. */
   pointer-events: none;
 }
@@ -68,7 +67,7 @@
 
 .bday_card-title {
   font-size: 32px;
-  font-weight: 700;
+  font-weight: 600;   /* semibold */
   line-height: 120%;
   letter-spacing: -0.1px;
 }

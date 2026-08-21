@@ -40,12 +40,15 @@ the code, not just the content.
       falls back to `system-ui`; only `preview.html` actually fetches the webfont,
       from the Google CDN. Confirm the real theme serves Public Sans — if not it
       needs self-hosting, since a strict CSP will block the CDN.
-- [ ] **Card text doesn't scale with the card.** Sizes are fixed px per spec while
-      the card is fluid (`min(1040px, 100vw - 80px)`), so the type is
-      proportionally larger on a narrow window. Measured clearance above the
-      printed balloons: 144px at 1280 wide, 116px at the 1024 floor — fits, but
-      the margin shrinks as the window narrows. Longer copy or a bigger name would
-      eat it.
+- [ ] **The card's text area has almost no headroom left.** At the specced 702px
+      card with 32/20px type, clearance between the copy and the printed balloon
+      band is **46px** — down from 144px when the card was 1040px wide. Measured
+      failure points: a long name wraps the heading to two lines and leaves
+      **7px**; one extra sentence of body copy leaves **16px**. Neither overflows
+      today, but there is no room for real user data to be longer than
+      "Timothy". Either the copy needs a hard length limit, or the type should
+      scale with the card, or the text needs its own area rather than sitting on
+      the artwork's blank band.
 - [ ] **No CTA on the card.** Still no destination URLs collected.
 - [ ] **Analytics** — no events dispatched on open, pop, or dismiss.
 - [ ] **Browser floor** beyond the 1024px width decision. Decides whether
