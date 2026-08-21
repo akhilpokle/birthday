@@ -144,11 +144,19 @@ the card instead of behind it. Both canvases come from the same
 and `MAX_PARTICLES` budget, so a large finale can't starve the per-pop bursts.
 Fires once; `reset()` re-arms it, and `finale(true)` forces a replay.
 
-**Tuning panel.** `preview.html` carries 13 sliders, a pointer switcher and a
+The **spawn ring (150px) is load-bearing**. The origin is screen centre, behind
+an opaque 702×350 card that reaches 351px to its nearest side edge. With a point
+origin the burst was 0% visible for the first 250ms and 11% at 320ms — drift
+leaking out from behind the card, not a pop. With the ring at the same 620
+velocity it reaches 27% visible by 160ms and peaks at 75%. Set the ring to 0 and
+the finale effectively disappears again.
+
+**Tuning panel.** `preview.html` carries 14 sliders, a pointer switcher and a
 Finale button,
 driving `window.bday.config` via `setConfig()`. `×` or Esc hides it; a `tune` pill brings it back. The defaults
-in `CONFIG` are the values signed off on 2026-08-20 — 208px balloons, 10° tilt,
-30ms frames, 0.8px/ms wave, 38 particles at 0.8× / 370 velocity / 240 gravity. Balloon settings rebuild the field; confetti settings are read
+in `CONFIG` are the values signed off on 2026-08-21 — 208px balloons, 12° tilt,
+0.17 scatter, 30ms frames, 2px/ms wave, 12 particles per pop at 0.9× / 290
+velocity / 240 gravity, finale 260 at 620, pointer `default`. Balloon settings rebuild the field; confetti settings are read
 at burst time and fire a sample burst instead, so tuning them doesn't wipe the
 thing you're looking at. "Copy config" puts the current values on the clipboard.
 The panel is **preview-only** — per §1, dev UI does not ship in the fragment. What

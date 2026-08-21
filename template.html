@@ -275,27 +275,34 @@
   var CONFIG = {
     maxBalloons:  100,  // hard ceiling — denser than this reads as noise
     balloonSize:  208,  // px
-    jitterRatio:  0.45, // offset from cell centre, as a fraction of the cell
-    maxTilt:      10,   // degrees, applied as -maxTilt..+maxTilt
+    jitterRatio:  0.17, // offset from cell centre, as a fraction of the cell
+    maxTilt:      12,   // degrees, applied as -maxTilt..+maxTilt
     frameMs:      30,   // gap between pop frames; a pop runs 4*frameMs = 120ms
-    wavePxPerMs:  0.8,  // chain speed: delay = distance / this
+    wavePxPerMs:  2,    // chain speed: delay = distance / this
 
     // Confetti, per popped balloon. Parameter names follow confetti.js
     // (count/size/velocity/fade/position) but this is our own implementation —
     // the library ships via npm/CDN, which a Liferay CSP would block.
-    confettiCount:    38,   // particles per pop
-    confettiSize:     0.8,  // multiplier on the base particle box
-    confettiVelocity: 370,  // initial speed, px/sec
+    confettiCount:    12,   // particles per pop
+    confettiSize:     0.9,  // multiplier on the base particle box
+    confettiVelocity: 290,  // initial speed, px/sec
     confettiFade:     0,    // 0 = fall off screen, 1 = fade in place
     confettiGravity:  240,  // px/sec^2
 
     // The finale: one multi-colour burst from screen centre once the last
     // balloon is gone. Fires on the rear canvas, so it passes behind the card.
+    //
     finaleCount:    260,
     finaleVelocity: 620,
+    // Load-bearing. The origin sits dead centre, behind an opaque 702x350 card
+    // that reaches 351px to its nearest side edge. Spawning on a ring rather
+    // than at a point is what makes the burst visible at all at this velocity:
+    // with radius 0 it was 0% visible for the first 250ms and read as drift
+    // leaking out from behind the card instead of a pop.
+    finaleOriginRadius: 150,
 
     // "pin" | "crosshair" | "default" — change via setPointer(), not setConfig()
-    pointer: "pin"
+    pointer: "default"
   };
 
   // Sampled from the frame-1 artwork so the burst matches the balloon that
@@ -451,6 +458,9 @@
       var velocity = opts.velocity != null ? opts.velocity : CONFIG.confettiVelocity;
       var fade = opts.fade != null ? opts.fade : !!CONFIG.confettiFade;
       var palette = opts.color || CONFETTI_PALETTE.Blue;
+      // Spawn on a ring instead of a point. Only the finale uses this, to get
+      // clear of the card it fires behind.
+      var originRadius = opts.originRadius || 0;
 
       var room = MAX_PARTICLES - particles.length;
       if (room <= 0) return;
@@ -461,8 +471,10 @@
         // than clumped the way pure random angles do at low counts.
         var a = (i / count) * Math.PI * 2 + (Math.random() - 0.5) * 0.6;
         var speed = velocity * (0.45 + Math.random() * 0.75);
+        var rr = originRadius ? originRadius * (0.65 + Math.random() * 0.35) : 0;
         particles.push({
-          x: pos.x, y: pos.y,
+          x: pos.x + Math.cos(a) * rr,
+          y: pos.y + Math.sin(a) * rr,
           vx: Math.cos(a) * speed,
           vy: Math.sin(a) * speed,
           w: (5 + Math.random() * 5) * size,
@@ -577,7 +589,8 @@
       position: { x: layer.clientWidth / 2, y: layer.clientHeight / 2 },
       color: FINALE_PALETTE,
       count: CONFIG.finaleCount,
-      velocity: CONFIG.finaleVelocity
+      velocity: CONFIG.finaleVelocity,
+      originRadius: CONFIG.finaleOriginRadius
     });
     return true;
   }
