@@ -114,18 +114,31 @@ prose here deliberately doesn't repeat the numbers.)
   keyboard and screen-reader users**. Fine for pure decoration; if popping ever
   does something meaningful, this needs a real control.
 
-**Confetti — REMOVED 2026-08-21.** A self-contained canvas particle system used
-to fire a burst per popped balloon, plus a multi-colour finale from screen
-centre once the last balloon went. It was taken out after confetti failed to
-appear on a managed laptop and the cause could not be pinned down — the deployed
-build turned out to be stale, so the failure was never reproduced against
-current code.
+**Confetti — confetti.js, vendored.** `vendor/confetti.min.js` is
+`@hiseb/confetti` 2.2.0 (ISC, 4.6KB minified, no runtime dependencies), **copied
+into the repo rather than loaded from a CDN** — a Liferay CSP would block the
+external script. Licence text is in `vendor/confetti-LICENSE.txt` and ISC
+requires it be retained.
 
-Nothing of it remains: no `<canvas>` elements, no palettes, no `MAX_PARTICLES`,
-no finale, and the `confetti*` / `finale*` keys are gone from `CONFIG`. It is
-recoverable from git history (`cad8da7` and earlier) if it is ever wanted back.
-**If it does come back, note it was never confetti.js** — that library ships via
-npm/CDN and a Liferay CSP would block it, which is why it was written by hand.
+It's an IIFE that assigns `window.confetti`, so its `<script>` must come before
+the component script. Each balloon fires one burst on frame 3 — the shatter
+frame — in its own colour, using the library's own option names
+(`count`/`size`/`velocity`/`fade`/`color`/`position`), so its docs apply as
+written.
+
+**Calls go through a guarded `burst()` wrapper, never `window.confetti`
+directly.** If the vendored file fails to load — bad path after the Liferay
+repoint, 404, blocked — the call returns `false` instead of throwing. That
+matters: an exception here would abort the rest of the init and take the
+balloons down with it. `diagnose()` reports `confettiLibLoaded` for exactly this.
+
+**Two things the library takes out of our hands.** It appends its own canvas to
+`<body>` at `z-index: 999999999`, so confetti always paints above everything —
+the old "behind the card" finale is not achievable without hacking its internals.
+And that canvas is outside our root, so `destroy()` does not remove it.
+
+This replaced a hand-written particle system that was removed on 2026-08-21;
+that version is in git history at `cad8da7` and earlier.
 
 **Pointer.** Three modes, switchable at runtime via `window.bday.setPointer()`:
 `pin` (default, native cursor), `crosshair` (JS-tracked reticle plus

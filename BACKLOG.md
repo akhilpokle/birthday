@@ -1,10 +1,8 @@
 # Backlog — 2027 birthday takeover
 
-> **2026-08-21 — confetti removed.** The per-pop bursts and the centre-screen
-> finale were taken out; the takeover is now the balloon field, the pop
-> sequence, and the message card. Items referring to particles, canvases or the
-> finale have been deleted rather than left to rot. History has it if it's
-> wanted back.
+> **2026-08-21 — confetti is now confetti.js, vendored.** The hand-written
+> particle system was removed, then replaced with `@hiseb/confetti` 2.2.0 copied
+> into `vendor/`. The centre-screen finale was not restored.
 
 Open items as of **2026-08-21**. Companion to `LIFERAY-PLAYBOOK.md` (which records
 decisions already made); this file records what's still undecided or unfinished.
@@ -63,6 +61,21 @@ the code, not just the content.
 ---
 
 ## 2. Known risks in the code
+
+- [ ] **`vendor/confetti.min.js` needs an integration decision.** It's a separate
+      `<script src>`, but a Liferay fragment has *one* JS field. Either upload it
+      as a fragment resource and repoint the src to `[resources:confetti.min.js]`,
+      or paste its 4.6KB above the component script in the JS field. Until that's
+      done the confetti silently no-ops — by design, but silently. Check
+      `diagnose().confettiLibLoaded` after integrating.
+- [ ] **Third-party code now ships in the fragment.** ISC licensed, no runtime
+      dependencies, 4.6KB — but it is someone else's code inside a bank's
+      intranet, and `vendor/confetti-LICENSE.txt` must travel with it. Worth a
+      nod from whoever signs off on dependencies.
+- [ ] **Confetti always paints on top.** The library appends its canvas to
+      `<body>` at `z-index: 999999999`, outside our root — so it covers the card,
+      and `destroy()` can't remove it. If confetti ever needs to sit *behind*
+      something, this library can't do it without patching.
 
 - [ ] **The pop is suppressed entirely under `prefers-reduced-motion: reduce`,**
       and managed Windows machines commonly have "Show animations" disabled by

@@ -219,6 +219,19 @@
   </div>
 </div>
 
+<!-- confetti.js (@hiseb/confetti 2.2.0, ISC) — vendored, NOT loaded from a CDN.
+     It ships with the project because a Liferay CSP would block an external
+     script. It is an IIFE that assigns window.confetti, so it must load before
+     the component script below.
+
+     LIFERAY: this needs one of two things at integration time —
+       (a) upload vendor/confetti.min.js as a fragment resource and repoint this
+           src to [resources:confetti.min.js], or
+       (b) paste its contents at the top of the fragment's JavaScript field,
+           above the component script.
+     Licence text is in vendor/confetti-LICENSE.txt and must be retained. -->
+<script src="vendor/confetti.min.js"></script>
+
 <script>
 (function () {
   "use strict";
@@ -252,9 +265,36 @@
     frameMs:      30,   // gap between pop frames; a pop runs 4*frameMs = 120ms
     wavePxPerMs:  2,    // chain speed: delay = distance / this
 
+    // Passed straight through to confetti.js. Names match its own options, so
+    // its docs apply as written: count, size, velocity, fade, color, position.
+    confettiCount:    40,
+    confettiSize:     1,
+    confettiVelocity: 200,
+    confettiFade:     0,    // 0 = fall off screen, 1 = fade out in place
+
     // "pin" | "crosshair" | "default" — change via setPointer(), not setConfig()
     pointer: "default"
   };
+
+  // Sampled from the frame-1 artwork, so a burst matches the balloon that threw
+  // it. Passed to confetti.js as its `color` option.
+  var CONFETTI_PALETTE = {
+    Blue:   ["#97def7", "#7ab8ee", "#6381bc"],
+    Green:  ["#a7ee3d", "#67cc14", "#31a901"],
+    Red:    ["#fde7f2", "#fc7fae", "#fc436f"],
+    Sage:   ["#93eacd", "#49c094", "#2ba680"],
+    Yellow: ["#fcdc4f", "#f9c427", "#e0a900"]
+  };
+
+  // The library is a separate <script>. If it failed to load — blocked, 404,
+  // wrong path after the Liferay repoint — calling it would throw and take the
+  // rest of the component down with it. Balloons matter more than confetti.
+  function burst(opts) {
+    if (typeof window.confetti !== "function") return false;
+    if (reduceMq.matches) return false;
+    try { window.confetti(opts); } catch (err) { return false; }
+    return true;
+  }
 
   var reduceMq = window.matchMedia("(prefers-reduced-motion: reduce)");
 
@@ -453,7 +493,22 @@
     for (var f = 2; f <= FRAMES; f++) {
       (function (frame) {
         later(function () {
-          if (img.isConnected) img.src = srcFor(color, frame);
+          if (!img.isConnected) return;
+          img.src = srcFor(color, frame);
+          // Frame 3 is the shatter — nothing should escape an intact balloon.
+          // confetti.js positions in viewport coordinates, which is what
+          // getBoundingClientRect gives us.
+          if (frame === 3) {
+            var r = img.getBoundingClientRect();
+            burst({
+              position: { x: r.left + r.width / 2, y: r.top + r.height / 2 },
+              count: CONFIG.confettiCount,
+              size: CONFIG.confettiSize,
+              velocity: CONFIG.confettiVelocity,
+              fade: !!CONFIG.confettiFade,
+              color: CONFETTI_PALETTE[color] || CONFETTI_PALETTE.Blue
+            });
+          }
         }, (frame - 1) * CONFIG.frameMs);
       })(f);
     }
@@ -654,6 +709,7 @@
       return CONFIG;
     },
     reset: rebuild,
+    confetti: burst,   // guarded wrapper, not window.confetti directly
     balloonsRemaining: balloonsRemaining,
     pointerModes: POINTER_MODES,
     setPointer: setPointer,
@@ -664,6 +720,9 @@
         // Suppresses the pop frame sequence entirely — commonly enabled by
         // policy on managed Windows machines.
         prefersReducedMotion: reduceMq.matches,
+        // false means the vendored script didn't load — check the path after
+        // the Liferay resource repoint.
+        confettiLibLoaded: typeof window.confetti === "function",
         balloonsInDom: layer.querySelectorAll(".bday_balloon").length,
         balloonsRemaining: balloonsRemaining(),
         layerSize: layer.clientWidth + "x" + layer.clientHeight,
