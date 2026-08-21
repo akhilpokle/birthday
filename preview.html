@@ -100,7 +100,6 @@
     <p class="note">preview.html only — not part of the fragment</p>
     <div class="body" id="tunerBody"></div>
     <div class="btns">
-      <button type="button" id="playFinale">Finale</button>
       <button type="button" id="resetField">Reset field</button>
       <button type="button" id="copyCfg">Copy config</button>
     </div>
@@ -134,31 +133,8 @@
     { key: "jitterRatio", label: "Scatter",       min: 0,   max: 0.5, step: 0.01 },
     { key: "maxTilt",     label: "Tilt",          min: 0,   max: 30,  step: 1,    unit: "°" },
     { key: "frameMs",     label: "Frame gap",     min: 30,  max: 400, step: 10,   unit: "ms" },
-    { key: "wavePxPerMs", label: "Wave speed",    min: 0.2, max: 6,   step: 0.1,  unit: "px/ms" },
-    { group: "Confetti" },
-    { key: "confettiCount",    label: "Count",    min: 0,   max: 120, step: 2 },
-    { key: "confettiSize",     label: "Size",     min: 0.3, max: 4,   step: 0.1,  unit: "×" },
-    { key: "confettiVelocity", label: "Velocity", min: 40,  max: 700, step: 10 },
-    { key: "confettiGravity",  label: "Gravity",  min: 0,   max: 1600, step: 20 },
-    { key: "confettiFade",     label: "Fade out", min: 0,   max: 1,   step: 1,
-      format: function (v) { return +v ? "yes" : "no"; } },
-    { group: "Finale" },
-    { key: "finaleCount",    label: "Count",     min: 20, max: 600,  step: 10 },
-    { key: "finaleVelocity", label: "Velocity",  min: 80, max: 2000, step: 20 },
-    { key: "finaleOriginRadius", label: "Spawn ring", min: 0, max: 360, step: 10, unit: "px" }
+    { key: "wavePxPerMs", label: "Wave speed",    min: 0.2, max: 6,   step: 0.1,  unit: "px/ms" }
   ];
-
-  // Throttled so dragging a confetti slider fires one burst per ~180ms rather
-  // than one per input event.
-  var burstAt = 0;
-  function previewBurst() {
-    var now = Date.now();
-    if (now - burstAt < 180) return;
-    burstAt = now;
-    window.bday.confetti({
-      position: { x: innerWidth / 2, y: innerHeight * 0.55 }
-    });
-  }
 
   var POINTER_LABELS = { pin: "Pin", crosshair: "Crosshair", "default": "Normal" };
 
@@ -195,14 +171,6 @@
     });
 
     body.appendChild(seg);
-  }
-
-  var finaleAt = 0;
-  function previewFinale() {
-    var now = Date.now();
-    if (now - finaleAt < 400) return;
-    finaleAt = now;
-    window.bday.finale(true);   // force: replay even though it already fired
   }
 
   function buildTuner() {
@@ -253,25 +221,11 @@
       }
       show();
 
-      // Confetti values are read at burst time, so they don't need a rebuild —
-      // and rebuilding would wipe the burst you're trying to look at.
-      var isConfetti = c.key.indexOf("confetti") === 0;
-      var isFinale = c.key.indexOf("finale") === 0;
-
       input.addEventListener("input", function () {
         show();
-        var v = parseFloat(input.value);
-        if (isFinale) {
-          window.bday.config[c.key] = v;
-          previewFinale();
-        } else if (isConfetti) {
-          window.bday.config[c.key] = v;
-          previewBurst();
-        } else {
-          var patch = {};
-          patch[c.key] = v;
-          window.bday.setConfig(patch);
-        }
+        var patch = {};
+        patch[c.key] = parseFloat(input.value);
+        window.bday.setConfig(patch);
       });
 
       label.appendChild(row);
@@ -294,10 +248,6 @@
     showBtn.addEventListener("click", function () { setPanel(true); });
     document.addEventListener("keydown", function (e) {
       if (e.key === "Escape" && !panel.hidden) setPanel(false);
-    });
-
-    document.getElementById("playFinale").addEventListener("click", function () {
-      window.bday.finale(true);
     });
 
     document.getElementById("resetField").addEventListener("click", function () {

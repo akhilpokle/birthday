@@ -32,18 +32,6 @@
   backdrop-filter: blur(16px);
 }
 
-/* Rear confetti — the finale burst, which must pass BEHIND the card. Same
-   reasoning as .bday_card: no z-index, so DOM order alone puts it above the
-   overlay and below the card. The front canvas can't be reused; it's at
-   z-index 200, above everything. */
-.bday_confetti-back {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-}
-
 /* The message card. Sits above the overlay and below the balloons, so it's
    uncovered as they pop rather than needing any reveal logic of its own.
    No z-index on purpose: it and .bday_overlay are both auto, so DOM order puts
@@ -98,20 +86,6 @@
 /* Host defence: the intranet styles bare h2/p, and our harness proves it by
    setting `p { margin: 0 0 18px }`. Without this the copy inherits it. */
 .bday_root h2, .bday_root p { margin: 0; }
-
-/* Confetti draws above the balloons but must never eat a click.
-   The z-index is load-bearing: .bday_balloons doesn't create a stacking context,
-   so the balloons' inline z-index (1..Z_LEVELS) competes directly with this
-   canvas in the root's context. Without a value above Z_LEVELS the confetti
-   renders *behind* the balloon field. */
-.bday_confetti {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-  z-index: 200;
-}
 
 /* ── pointer modes ────────────────────────────────────────────────────
    Driven by data-bday-pointer on the root, set via window.bday.setPointer().
@@ -221,7 +195,6 @@
        should exist at all is an open question in BACKLOG.md §1. -->
   <img class="bday_bg" src="Assets/background.svg" alt="" aria-hidden="true" />
   <div class="bday_overlay"></div>
-  <canvas class="bday_confetti-back" id="bday_confetti_back" aria-hidden="true"></canvas>
   <!-- The final message, revealed as the balloons in front of it are popped.
        The artwork is decorative; the message itself is live text so it stays
        readable, translatable and screen-reader accessible. -->
@@ -235,7 +208,6 @@
     </div>
   </div>
   <div class="bday_balloons" id="bday_balloons" aria-hidden="true"></div>
-  <canvas class="bday_confetti" id="bday_confetti" aria-hidden="true"></canvas>
 
   <!-- Only populated in crosshair mode; hidden otherwise. -->
   <div class="bday_pointer" id="bday_pointer" aria-hidden="true" hidden>
@@ -280,54 +252,9 @@
     frameMs:      30,   // gap between pop frames; a pop runs 4*frameMs = 120ms
     wavePxPerMs:  2,    // chain speed: delay = distance / this
 
-    // Confetti, per popped balloon. Parameter names follow confetti.js
-    // (count/size/velocity/fade/position) but this is our own implementation —
-    // the library ships via npm/CDN, which a Liferay CSP would block.
-    confettiCount:    12,   // particles per pop
-    confettiSize:     0.9,  // multiplier on the base particle box
-    confettiVelocity: 290,  // initial speed, px/sec
-    confettiFade:     0,    // 0 = fall off screen, 1 = fade in place
-    confettiGravity:  240,  // px/sec^2
-
-    // The finale: one multi-colour burst from screen centre once the last
-    // balloon is gone. Fires on the rear canvas, so it passes behind the card.
-    //
-    finaleCount:    260,
-    finaleVelocity: 620,
-    // Load-bearing. The origin sits dead centre, behind an opaque 702x350 card
-    // that reaches 351px to its nearest side edge. Spawning on a ring rather
-    // than at a point is what makes the burst visible at all at this velocity:
-    // with radius 0 it was 0% visible for the first 250ms and read as drift
-    // leaking out from behind the card instead of a pop.
-    finaleOriginRadius: 150,
-
     // "pin" | "crosshair" | "default" — change via setPointer(), not setConfig()
     pointer: "default"
   };
-
-  // Sampled from the frame-1 artwork so the burst matches the balloon that
-  // threw it, rather than an approximated hex.
-  var CONFETTI_PALETTE = {
-    Blue:   ["#97def7", "#7ab8ee", "#6381bc"],
-    Green:  ["#a7ee3d", "#67cc14", "#31a901"],
-    Red:    ["#fde7f2", "#fc7fae", "#fc436f"],
-    Sage:   ["#93eacd", "#49c094", "#2ba680"],
-    Yellow: ["#fcdc4f", "#f9c427", "#e0a900"]
-  };
-
-  // Every palette at once, for the finale.
-  var FINALE_PALETTE = (function () {
-    var all = [];
-    for (var k in CONFETTI_PALETTE) {
-      if (Object.prototype.hasOwnProperty.call(CONFETTI_PALETTE, k)) {
-        all = all.concat(CONFETTI_PALETTE[k]);
-      }
-    }
-    return all;
-  })();
-
-  var MAX_PARTICLES = 1400;  // ceiling per layer — a full wave of 26 balloons
-                             // at a high count would otherwise stack up
 
   var reduceMq = window.matchMedia("(prefers-reduced-motion: reduce)");
 
@@ -406,189 +333,6 @@
     }
   }
 
-  // ── confetti ──────────────────────────────────────────────────────────
-  // Self-contained canvas particle system. Same option names as confetti.js
-  // so the concepts transfer, but no external dependency.
-
-  // One instance per canvas. Two exist: the front layer (z-index 200, above the
-  // balloons) for per-pop bursts, and the rear layer (behind the card) for the
-  // finale. Each owns its particles, its rAF loop and its own MAX_PARTICLES
-  // budget, so a huge finale can't starve the per-pop bursts.
-  function createConfettiLayer(canvasEl, lazy) {
-    // Plain 2d context. `desynchronized: true` was tried here as an
-    // optimisation and removed: on some managed/integrated-GPU setups it
-    // renders nothing at all, which is not a trade worth a sync point.
-    var ctx = canvasEl.getContext("2d");
-    var particles = [];
-    var rafId = null;
-    var lastFrameTs = 0;
-    var dpr = 1;
-    var sized = false;
-
-    function applySize() {
-      dpr = window.devicePixelRatio || 1;
-      canvasEl.width = Math.round(layer.clientWidth * dpr);
-      canvasEl.height = Math.round(layer.clientHeight * dpr);
-      // Draw in CSS pixels; the transform handles the device ratio.
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      sized = true;
-    }
-
-    // Both layers size eagerly. Lazy allocation was tried here to defer ~16MB
-    // for a canvas that may never be used, but it means the finale canvas is
-    // 300x150 until its first burst — one missed sizing call and the finale
-    // paints into nothing. Not worth the memory.
-    function resize() {
-      applySize();
-    }
-
-    function burst(opts) {
-      if (reduceMq.matches) return;
-      if (!sized) applySize();
-      opts = opts || {};
-      var pos = opts.position || { x: layer.clientWidth / 2, y: layer.clientHeight / 2 };
-      var count = opts.count != null ? opts.count : CONFIG.confettiCount;
-      var size = opts.size != null ? opts.size : CONFIG.confettiSize;
-      var velocity = opts.velocity != null ? opts.velocity : CONFIG.confettiVelocity;
-      var fade = opts.fade != null ? opts.fade : !!CONFIG.confettiFade;
-      var palette = opts.color || CONFETTI_PALETTE.Blue;
-      // Spawn on a ring instead of a point. Only the finale uses this, to get
-      // clear of the card it fires behind.
-      var originRadius = opts.originRadius || 0;
-
-      var room = MAX_PARTICLES - particles.length;
-      if (room <= 0) return;
-      if (count > room) count = room;
-
-      for (var i = 0; i < count; i++) {
-        // Even angular spread with a random nudge, so bursts look radial rather
-        // than clumped the way pure random angles do at low counts.
-        var a = (i / count) * Math.PI * 2 + (Math.random() - 0.5) * 0.6;
-        var speed = velocity * (0.45 + Math.random() * 0.75);
-        var rr = originRadius ? originRadius * (0.65 + Math.random() * 0.35) : 0;
-        particles.push({
-          x: pos.x + Math.cos(a) * rr,
-          y: pos.y + Math.sin(a) * rr,
-          vx: Math.cos(a) * speed,
-          vy: Math.sin(a) * speed,
-          w: (5 + Math.random() * 5) * size,
-          h: (3 + Math.random() * 5) * size,
-          rot: Math.random() * Math.PI,
-          vrot: (Math.random() - 0.5) * 12,
-          color: palette[Math.floor(Math.random() * palette.length)],
-          life: 0,
-          ttl: 1.1 + Math.random() * 0.9,
-          fade: fade
-        });
-      }
-      startLoop();
-    }
-
-    function step(ts) {
-      if (!lastFrameTs) lastFrameTs = ts;
-      // Clamp dt so a background tab (throttled to ~1Hz) doesn't teleport every
-      // particle off screen the moment it regains focus.
-      var dt = Math.min((ts - lastFrameTs) / 1000, 0.05);
-      lastFrameTs = ts;
-
-      // Hoisted out of the loop. clientWidth/clientHeight force a layout, and
-      // the fall-off test below used to read clientHeight per particle per
-      // frame — up to 1400 forced reflows every frame.
-      var vw = layer.clientWidth, vh = layer.clientHeight;
-      var gravity = CONFIG.confettiGravity;
-
-      ctx.clearRect(0, 0, vw, vh);
-
-      for (var i = particles.length - 1; i >= 0; i--) {
-        var p = particles[i];
-        p.life += dt;
-        p.vy += gravity * dt;
-        p.vx *= 0.99;                       // light air drag
-        p.x += p.vx * dt;
-        p.y += p.vy * dt;
-        p.rot += p.vrot * dt;
-
-        var alpha = 1;
-        if (p.fade) {
-          alpha = 1 - p.life / p.ttl;
-          if (alpha <= 0) { particles.splice(i, 1); continue; }
-        } else if (p.y - p.h > vh) {
-          particles.splice(i, 1); continue;   // fell off the bottom
-        }
-
-        // Plain save/restore. A single setTransform per particle was tried as
-        // an optimisation; it works, but it replaces the base transform rather
-        // than composing with it, so any mistake in the dpr maths silently
-        // draws nothing. Not worth the risk for the frame budget involved.
-        ctx.save();
-        ctx.globalAlpha = alpha;
-        ctx.translate(p.x, p.y);
-        ctx.rotate(p.rot);
-        ctx.fillStyle = p.color;
-        ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
-        ctx.restore();
-      }
-
-      if (particles.length) {
-        rafId = requestAnimationFrame(step);
-      } else {
-        rafId = null;
-        lastFrameTs = 0;
-      }
-    }
-
-    function startLoop() {
-      if (rafId === null) {
-        lastFrameTs = 0;
-        rafId = requestAnimationFrame(step);
-      }
-    }
-
-    function clear() {
-      if (rafId !== null) cancelAnimationFrame(rafId);
-      rafId = null;
-      lastFrameTs = 0;
-      particles.length = 0;
-      ctx.clearRect(0, 0, canvasEl.width, canvasEl.height);
-    }
-
-    return {
-      resize: resize, burst: burst, clear: clear,
-      count: function () { return particles.length; },
-      info: function () {
-        return { sized: sized, backing: canvasEl.width + "x" + canvasEl.height,
-                 particles: particles.length, looping: rafId !== null };
-      }
-    };
-  }
-
-  var frontConfetti = createConfettiLayer(document.getElementById("bday_confetti"));
-  // lazy: the finale canvas allocates nothing until the finale actually runs.
-  var backConfetti  = createConfettiLayer(document.getElementById("bday_confetti_back"), true);
-
-  // Public burst == the front layer; the finale is the only rear-layer user.
-  function confetti(opts) { return frontConfetti.burst(opts); }
-
-  function sizeCanvas() { frontConfetti.resize(); backConfetti.resize(); }
-  function clearConfetti() { frontConfetti.clear(); backConfetti.clear(); }
-
-  // ── finale ────────────────────────────────────────────────────────────
-  // One multi-colour burst from screen centre once the last balloon is gone.
-  var finaleFired = false;
-
-  function finale(force) {
-    if (finaleFired && !force) return false;
-    finaleFired = true;
-    backConfetti.burst({
-      position: { x: layer.clientWidth / 2, y: layer.clientHeight / 2 },
-      color: FINALE_PALETTE,
-      count: CONFIG.finaleCount,
-      velocity: CONFIG.finaleVelocity,
-      originRadius: CONFIG.finaleOriginRadius
-    });
-    return true;
-  }
-
   // Counts the DOM each time rather than tracking a counter. The counter was
   // faster but had to be kept in sync from three places; at ~100 balloons this
   // costs nothing and cannot drift out of step with what's on screen.
@@ -608,7 +352,6 @@
     if (img.getAttribute("data-bday-gone") === "1") return;
     img.setAttribute("data-bday-gone", "1");
     img.style.display = "none";
-    if (!finaleFired && balloonsRemaining() === 0) finale();
   }
 
   // ── crosshair pointer ─────────────────────────────────────────────────
@@ -710,19 +453,7 @@
     for (var f = 2; f <= FRAMES; f++) {
       (function (frame) {
         later(function () {
-          if (!img.isConnected) return;
-          img.src = srcFor(color, frame);
-          // Fire on the shatter frame, not frame 1 — the balloon has to break
-          // before anything can come out of it.
-          if (frame === 3) {
-            var r = img.getBoundingClientRect();
-            var lr = layer.getBoundingClientRect();
-            confetti({
-              position: { x: r.left + r.width / 2 - lr.left,
-                          y: r.top + r.height / 2 - lr.top },
-              color: CONFETTI_PALETTE[color] || CONFETTI_PALETTE.Blue
-            });
-          }
+          if (img.isConnected) img.src = srcFor(color, frame);
         }, (frame - 1) * CONFIG.frameMs);
       })(f);
     }
@@ -859,7 +590,6 @@
     lastRows = g.rows;
     lastW = w;
     lastH = h;
-    sizeCanvas();   // canvas backing store must track the viewport too
     // Rule lengths are measured off the viewport, so they go stale on a resize
     // that doesn't move the mouse.
     if (ptrLive) drawPointer();
@@ -883,15 +613,12 @@
   function rebuild() {
     clearTimers();
     popped = Object.create(null);
-    finaleFired = false;   // a rebuilt field can earn its finale again
-    clearConfetti();
     applySize();
     lastCols = lastRows = lastW = lastH = -1;
     applyResize();   // synchronous: callers expect the field to exist on return
   }
 
   applySize();
-  sizeCanvas();
   applyResize();
   window.addEventListener("resize", onResize);
 
@@ -927,49 +654,24 @@
       return CONFIG;
     },
     reset: rebuild,
-    confetti: confetti,   // exposed so the panel can preview a burst on demand
-    finale: finale,       // pass true to replay it
     balloonsRemaining: balloonsRemaining,
     pointerModes: POINTER_MODES,
     setPointer: setPointer,
 
-    // Run window.bday.diagnose() in the console on a machine where the confetti
-    // doesn't appear. It fires a test burst and reports whether anything was
-    // actually painted, which separates "suppressed on purpose" from "broken".
+    // Quick state dump for debugging on a machine you can't attach to.
     diagnose: function () {
-      var canvasOk = true, err = null;
-      try {
-        var t = document.createElement("canvas");
-        t.width = t.height = 8;
-        var tc = t.getContext("2d");
-        tc.fillStyle = "#fff";
-        tc.fillRect(0, 0, 8, 8);
-        canvasOk = tc.getImageData(0, 0, 1, 1).data[3] === 255;
-      } catch (e) { canvasOk = false; err = e.message; }
-
-      var before = frontConfetti.count();
-      frontConfetti.burst({ position: { x: layer.clientWidth / 2, y: layer.clientHeight / 2 } });
-      var after = frontConfetti.count();
-
       var report = {
-        // The single most likely reason for silent confetti on a managed
-        // machine: Windows "Show animations" off makes this true, and every
-        // burst is suppressed by design.
+        // Suppresses the pop frame sequence entirely — commonly enabled by
+        // policy on managed Windows machines.
         prefersReducedMotion: reduceMq.matches,
-        burstEmittedParticles: after - before,
-        canvas2dWorks: canvasOk,
-        canvasError: err,
+        balloonsInDom: layer.querySelectorAll(".bday_balloon").length,
+        balloonsRemaining: balloonsRemaining(),
+        layerSize: layer.clientWidth + "x" + layer.clientHeight,
         devicePixelRatio: window.devicePixelRatio || 1,
-        front: frontConfetti.info(),
-        back: backConfetti.info(),
-        liveBalloons: liveBalloons,
-        finaleAlreadyFired: finaleFired,
         pointerMode: CONFIG.pointer,
-        confettiCount: CONFIG.confettiCount,
-        finaleCount: CONFIG.finaleCount,
         userAgent: navigator.userAgent
       };
-      try { console.table ? console.table(report) : console.log(report); } catch (e) {}
+      try { console.log(report); } catch (e) {}
       return report;
     },
     destroy: function () {
@@ -983,7 +685,6 @@
       if (resizeRaf !== null) cancelAnimationFrame(resizeRaf);
       resizeRaf = null;
       clearTimers();
-      clearConfetti();
       if (root.parentNode) root.parentNode.removeChild(root);
       window.bday = null;
     }

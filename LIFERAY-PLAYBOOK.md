@@ -114,17 +114,18 @@ prose here deliberately doesn't repeat the numbers.)
   keyboard and screen-reader users**. Fine for pure decoration; if popping ever
   does something meaningful, this needs a real control.
 
-**Confetti.** Each balloon emits a burst on frame 3 — the shatter frame, since
-nothing should escape an intact balloon. Colours are sampled from the frame-1
-artwork per colour, so the burst matches the balloon that threw it.
+**Confetti — REMOVED 2026-08-21.** A self-contained canvas particle system used
+to fire a burst per popped balloon, plus a multi-colour finale from screen
+centre once the last balloon went. It was taken out after confetti failed to
+appear on a managed laptop and the cause could not be pinned down — the deployed
+build turned out to be stale, so the failure was never reproduced against
+current code.
 
-This is **our own canvas particle system, not confetti.js**. The parameter names
-(`count`, `size`, `velocity`, `fade`, `position`) deliberately mirror that library
-so the concepts transfer, but it ships via npm/CDN and a Liferay CSP would block
-the script — see the no-dependencies rule. `MAX_PARTICLES` (1400) caps the total
-across concurrent bursts; a full 26-balloon wave at a high count would otherwise
-stack up. The rAF loop stops itself when the last particle dies rather than
-spinning idle.
+Nothing of it remains: no `<canvas>` elements, no palettes, no `MAX_PARTICLES`,
+no finale, and the `confetti*` / `finale*` keys are gone from `CONFIG`. It is
+recoverable from git history (`cad8da7` and earlier) if it is ever wanted back.
+**If it does come back, note it was never confetti.js** — that library ships via
+npm/CDN and a Liferay CSP would block it, which is why it was written by hand.
 
 **Pointer.** Three modes, switchable at runtime via `window.bday.setPointer()`:
 `pin` (default, native cursor), `crosshair` (JS-tracked reticle plus
@@ -136,31 +137,14 @@ and default modes run no per-move JS at all. Which one ships is still open: the
 crosshair reads as a targeting scope, which is a questionable register for a
 birthday.
 
-**Finale.** Once the last balloon is hidden, one multi-colour burst fires from
-screen centre. It uses a **second canvas** placed between the overlay and the
-card, because the per-pop canvas is at `z-index: 200` and would pass in front of
-the card instead of behind it. Both canvases come from the same
-`createConfettiLayer()` factory and each keeps its own particle array, rAF loop
-and `MAX_PARTICLES` budget, so a large finale can't starve the per-pop bursts.
-Fires once; `reset()` re-arms it, and `finale(true)` forces a replay.
-
-The **spawn ring (150px) is load-bearing**. The origin is screen centre, behind
-an opaque 702×350 card that reaches 351px to its nearest side edge. With a point
-origin the burst was 0% visible for the first 250ms and 11% at 320ms — drift
-leaking out from behind the card, not a pop. With the ring at the same 620
-velocity it reaches 27% visible by 160ms and peaks at 75%. Set the ring to 0 and
-the finale effectively disappears again.
-
-**Tuning panel.** `preview.html` carries 14 sliders, a pointer switcher and a
-Finale button,
-driving `window.bday.config` via `setConfig()`. `×` or Esc hides it; a `tune` pill brings it back. The defaults
-in `CONFIG` are the values signed off on 2026-08-21 — 208px balloons, 12° tilt,
-0.17 scatter, 30ms frames, 2px/ms wave, 12 particles per pop at 0.9× / 290
-velocity / 240 gravity, finale 260 at 620, pointer `default`. Balloon settings rebuild the field; confetti settings are read
-at burst time and fire a sample burst instead, so tuning them doesn't wipe the
-thing you're looking at. "Copy config" puts the current values on the clipboard.
-The panel is **preview-only** — per §1, dev UI does not ship in the fragment. What
-does ship is the small `config` / `setConfig` / `reset` / `confetti` API it drives.
+**Tuning panel.** `preview.html` carries 6 sliders and a pointer switcher,
+driving `window.bday.config` via `setConfig()`. `×` or Esc hides it; a `tune`
+pill brings it back. The defaults in `CONFIG` are the values signed off on
+2026-08-21 — 208px balloons, 12° tilt, 0.17 scatter, 30ms frames, 2px/ms wave,
+pointer `default`. "Copy config" puts the current values on the clipboard. The
+panel is **preview-only** — per §1, dev UI does not ship in the fragment. What
+does ship is the small `config` / `setConfig` / `reset` / `setPointer` /
+`diagnose` API it drives.
 
 **Open items** live in `BACKLOG.md` — the invented gradient alpha, asset sizing and
 frame registration, the unanswered brief questions, verification gaps, packaging.

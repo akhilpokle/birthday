@@ -1,6 +1,12 @@
 # Backlog — 2027 birthday takeover
 
-Open items as of **2026-08-20**. Companion to `LIFERAY-PLAYBOOK.md` (which records
+> **2026-08-21 — confetti removed.** The per-pop bursts and the centre-screen
+> finale were taken out; the takeover is now the balloon field, the pop
+> sequence, and the message card. Items referring to particles, canvases or the
+> finale have been deleted rather than left to rot. History has it if it's
+> wanted back.
+
+Open items as of **2026-08-21**. Companion to `LIFERAY-PLAYBOOK.md` (which records
 decisions already made); this file records what's still undecided or unfinished.
 
 Ordered roughly by cost of leaving it: the things at the top change what gets built,
@@ -58,14 +64,13 @@ the code, not just the content.
 
 ## 2. Known risks in the code
 
-- [ ] **Confetti is suppressed entirely under `prefers-reduced-motion: reduce`,**
+- [ ] **The pop is suppressed entirely under `prefers-reduced-motion: reduce`,**
       and managed Windows machines commonly have "Show animations" disabled by
-      policy — which sets it. On such a machine the balloons vanish instantly
-      with no frame sequence, no per-pop confetti and no finale. This is
-      currently the most likely explanation for "the confetti doesn't show on my
-      work laptop". Run `window.bday.diagnose()` there to confirm.
-      **Decide:** keep suppressing (correct by the letter of the guideline, but
-      the whole experience is lost), or keep a reduced, non-travelling version.
+      policy — which sets it. On such a machine balloons vanish instantly with no
+      crack-and-shatter sequence at all. Run `window.bday.diagnose()` there to
+      confirm. **Decide:** keep suppressing (correct by the letter of the
+      guideline, but the interaction loses all its feedback), or keep the
+      in-place frame swap and drop only the distance-staggered wave.
 
 - [ ] **`position: fixed` may not resolve against the viewport.** Conversion
       playbook §7: `fixed` resolves against the nearest ancestor with a `transform`,
@@ -75,20 +80,14 @@ the code, not just the content.
       not implemented. Test against the real theme early; this is cheap to fix and
       expensive to discover late.
 - [ ] **`z-index: 9999` is a guess.** Never checked against the real theme's stacking.
-- [ ] **Particle cap can clip a large wave.** `MAX_PARTICLES` is 1400; at
-      `confettiCount: 38`, a colour with 37+ balloons would hit it and later bursts
-      would emit nothing. Today's worst case is 26 balloons (988 particles), so
-      there's headroom — but raising the count or the balloon cap could cross it
-      silently. No warning is logged when a burst is clamped.
 - [ ] **Popped state is keyed by grid cell**, so `setConfig()` deliberately clears it.
       Fine for tuning; revisit if pops ever need to survive a genuine relayout.
-- [ ] **Stacking is held together by two hardcoded z-index values.** `.bday_balloons`
-      creates no stacking context, so the balloons' inline `z-index` (1..`Z_LEVELS`,
-      currently 100) competes directly with the confetti canvas (200) and the
-      crosshair layer (300) in the root's context. Raising `Z_LEVELS` above 200
-      would silently put balloons back on top of the confetti. Worth making the
-      layer a stacking context of its own (`isolation: isolate`) so the inline
-      values can't escape it.
+- [ ] **Stacking depends on hardcoded z-index values.** `.bday_balloons` creates no
+      stacking context, so the balloons' inline `z-index` (1..`Z_LEVELS`, currently
+      100) competes directly with the crosshair layer (300) in the root's context.
+      Raising `Z_LEVELS` above 300 would silently put balloons over the crosshair.
+      Worth making the layer a stacking context of its own (`isolation: isolate`)
+      so the inline values can't escape it.
 - [ ] **The rule colour is duplicated, not shared.** `.bday_rule`'s background
       (`#FF7E65`) has to match the stroke inside `Assets/crosshair.svg` by hand —
       they form one continuous line, so editing the svg's colour without editing
@@ -158,14 +157,11 @@ build: screenshots timed out all session, timers were throttled to ~1Hz, and
 `requestAnimationFrame` was suspended entirely.
 
 - [ ] **Nothing has been confirmed by eye.** Not the gradient, not the balloon
-      density, not the pop, not the confetti.
+      density, not the pop.
 - [ ] **Pop cadence unmeasured.** `frameMs: 30` means 5 frames in 120ms. Whether the
       crack and shatter stages are perceptible at that speed is unknown.
-- [ ] **Confetti was verified by pumping `requestAnimationFrame` by hand.** Physics,
-      colour, cap and cleanup are all confirmed — but real frame rate and visual
-      weight are not. Watch for jank with a full wave.
-- [ ] **Confetti's reduced-motion path is code-inspected only** — the media query
-      couldn't be flipped on a live instance.
+- [ ] **The reduced-motion path is code-inspected only** — the media query couldn't
+      be flipped on a live instance.
 - [x] ~~`clip-path: circle(50%)` was reasoned to clip only transparent corners,
       not measured.~~ **It was cutting real artwork** — 6.1% of Red's opaque pixels,
       2.9% of Blue's, 2.2% of Yellow's, because the shapes differ per colour
@@ -192,15 +188,13 @@ build: screenshots timed out all session, timers were throttled to ~1Hz, and
 - [ ] **README** with the integrator task list — the one instruction file. Must open
       by answering "which file do I open?"
 - [ ] **Repoint asset paths** to `[resources:…]`.
-- [ ] **Confirm the JS field has no size limit** that the inlined confetti + preload
-      list would breach.
+- [ ] **Confirm the JS field has no size limit** the inlined script would breach.
 - [ ] **Do not ship `preview.html`** — say so explicitly in the README.
 
 ---
 
 ## 7. Nice to have
 
-- [ ] Warn (console) when a confetti burst is clamped by `MAX_PARTICLES`.
 - [ ] Persist tuning-panel values to `localStorage` so a reload doesn't reset them.
 - [ ] The tuning panel rebuilds the whole field on every `input` event; fine at ≤100
       nodes, would need throttling if the cap ever rises.

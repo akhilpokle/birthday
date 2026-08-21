@@ -1,5 +1,10 @@
 # Making the project lighter
 
+> **2026-08-21 — the confetti this file discusses no longer exists.** The
+> particle system and the finale were removed from the component; §1 and the
+> palette note below are history, not a description of current code. **§2 and
+> §3 — the asset work — still stand and are unaffected.**
+
 Two halves: **§1 is done** — code changes already applied. **§2 is your list** —
 asset work that needs tools or decisions I shouldn't make alone.
 
