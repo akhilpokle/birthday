@@ -90,10 +90,9 @@ the code, not just the content.
 
 ## 3. Assets
 
-- [ ] **Resize the sources.** All 25 frames are 800×800 but render at 208px — a ~4×
-      downscale on 96 balloons. At `frameMs: 30` five frames swap in 120ms, which is
-      the most decode-sensitive moment in the whole experience. Generate ~416px
-      versions (2× for retina). Preloading currently pulls ~6MB of PNGs at init.
+- [ ] **Asset weight has its own file now — see `LIGHTENING.md`.** Summary: the
+      sources are 800×800 rendering at 208px, `Assets/` is 7.9MB, and resizing
+      plus compression should get it to ~1.5MB. The code-side work is already done.
 - [ ] **Frames aren't registered to a common centre.** Alpha-weighted centroids drift
       across each sequence — Red 5 sits ~95px left and ~113px below Red 1 (>10% of the
       canvas). Swapping frames in place makes the balloon visibly jump, worst in Red.

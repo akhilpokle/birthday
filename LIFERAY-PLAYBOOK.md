@@ -136,7 +136,16 @@ and default modes run no per-move JS at all. Which one ships is still open: the
 crosshair reads as a targeting scope, which is a questionable register for a
 birthday.
 
-**Tuning panel.** `preview.html` carries 11 sliders plus a pointer switcher,
+**Finale.** Once the last balloon is hidden, one multi-colour burst fires from
+screen centre. It uses a **second canvas** placed between the overlay and the
+card, because the per-pop canvas is at `z-index: 200` and would pass in front of
+the card instead of behind it. Both canvases come from the same
+`createConfettiLayer()` factory and each keeps its own particle array, rAF loop
+and `MAX_PARTICLES` budget, so a large finale can't starve the per-pop bursts.
+Fires once; `reset()` re-arms it, and `finale(true)` forces a replay.
+
+**Tuning panel.** `preview.html` carries 13 sliders, a pointer switcher and a
+Finale button,
 driving `window.bday.config` via `setConfig()`. `×` or Esc hides it; a `tune` pill brings it back. The defaults
 in `CONFIG` are the values signed off on 2026-08-20 — 208px balloons, 10° tilt,
 30ms frames, 0.8px/ms wave, 38 particles at 0.8× / 370 velocity / 240 gravity. Balloon settings rebuild the field; confetti settings are read

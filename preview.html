@@ -100,6 +100,7 @@
     <p class="note">preview.html only — not part of the fragment</p>
     <div class="body" id="tunerBody"></div>
     <div class="btns">
+      <button type="button" id="playFinale">Finale</button>
       <button type="button" id="resetField">Reset field</button>
       <button type="button" id="copyCfg">Copy config</button>
     </div>
@@ -140,7 +141,10 @@
     { key: "confettiVelocity", label: "Velocity", min: 40,  max: 700, step: 10 },
     { key: "confettiGravity",  label: "Gravity",  min: 0,   max: 1600, step: 20 },
     { key: "confettiFade",     label: "Fade out", min: 0,   max: 1,   step: 1,
-      format: function (v) { return +v ? "yes" : "no"; } }
+      format: function (v) { return +v ? "yes" : "no"; } },
+    { group: "Finale" },
+    { key: "finaleCount",    label: "Count",    min: 20, max: 600,  step: 10 },
+    { key: "finaleVelocity", label: "Velocity", min: 80, max: 1200, step: 20 }
   ];
 
   // Throttled so dragging a confetti slider fires one burst per ~180ms rather
@@ -190,6 +194,14 @@
     });
 
     body.appendChild(seg);
+  }
+
+  var finaleAt = 0;
+  function previewFinale() {
+    var now = Date.now();
+    if (now - finaleAt < 400) return;
+    finaleAt = now;
+    window.bday.finale(true);   // force: replay even though it already fired
   }
 
   function buildTuner() {
@@ -243,11 +255,15 @@
       // Confetti values are read at burst time, so they don't need a rebuild —
       // and rebuilding would wipe the burst you're trying to look at.
       var isConfetti = c.key.indexOf("confetti") === 0;
+      var isFinale = c.key.indexOf("finale") === 0;
 
       input.addEventListener("input", function () {
         show();
         var v = parseFloat(input.value);
-        if (isConfetti) {
+        if (isFinale) {
+          window.bday.config[c.key] = v;
+          previewFinale();
+        } else if (isConfetti) {
           window.bday.config[c.key] = v;
           previewBurst();
         } else {
@@ -277,6 +293,10 @@
     showBtn.addEventListener("click", function () { setPanel(true); });
     document.addEventListener("keydown", function (e) {
       if (e.key === "Escape" && !panel.hidden) setPanel(false);
+    });
+
+    document.getElementById("playFinale").addEventListener("click", function () {
+      window.bday.finale(true);
     });
 
     document.getElementById("resetField").addEventListener("click", function () {
