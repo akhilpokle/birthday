@@ -369,21 +369,19 @@
 
   // Every pending timeout, so destroy() can cancel the tail of a wave instead of
   // letting it fire against detached nodes.
-  // A plain object keyed by timer id: a wave schedules ~6 timers per balloon,
-  // and the array version did indexOf + splice on completion, which is O(n) per
-  // timer against a list several hundred long.
-  var timers = Object.create(null);
+  var timers = [];
   function later(fn, ms) {
     var id = setTimeout(function () {
-      delete timers[id];
+      var i = timers.indexOf(id);
+      if (i > -1) timers.splice(i, 1);
       fn();
     }, ms);
-    timers[id] = 1;
+    timers.push(id);
     return id;
   }
   function clearTimers() {
-    for (var id in timers) clearTimeout(id);
-    timers = Object.create(null);
+    for (var i = 0; i < timers.length; i++) clearTimeout(timers[i]);
+    timers.length = 0;
   }
 
   // Frames 2-5 are only fetched when a balloon pops. Without warming them the
@@ -393,28 +391,20 @@
   // put it in direct contention with the 5 frame-1 images the user can actually
   // see. Nothing can pop until the field is rendered and clicked, so there is
   // no reason for it to compete.
+  // Loaded straight away, all 20. Draining this through requestIdleCallback was
+  // tried to keep it off the critical path, but idle callbacks can be starved
+  // indefinitely on a busy or policy-throttled machine — and if a frame hasn't
+  // arrived when a balloon pops, the pop animates against an empty cache.
   var preloaded = [];
   function preloadFrames() {
-    var queue = [];
     for (var c = 0; c < COLORS.length; c++) {
-      for (var f = 2; f <= FRAMES; f++) queue.push(srcFor(COLORS[c], f));
+      for (var f = 2; f <= FRAMES; f++) {
+        var im = new Image();
+        im.src = srcFor(COLORS[c], f);
+        preloaded.push(im);   // hold a reference so it isn't collected
+      }
     }
-    var i = 0;
-    function next() {
-      if (i >= queue.length) return;
-      var im = new Image();
-      im.src = queue[i++];
-      preloaded.push(im);   // hold a reference so it isn't collected
-      // One per idle slot rather than 20 at once, so decoding stays off the
-      // critical path even on a slow machine.
-      schedule(next);
-    }
-    schedule(next);
   }
-
-  var schedule = window.requestIdleCallback
-    ? function (fn) { window.requestIdleCallback(fn, { timeout: 500 }); }
-    : function (fn) { later(fn, 60); };
 
   // ── confetti ──────────────────────────────────────────────────────────
   // Self-contained canvas particle system. Same option names as confetti.js
@@ -444,11 +434,11 @@
       sized = true;
     }
 
-    // A full-viewport canvas costs w*h*dpr^2*4 bytes — ~16MB at 1280x800 on a
-    // 2x display. The finale layer is used once, if ever, so it stays at the
-    // default 300x150 until its first burst.
+    // Both layers size eagerly. Lazy allocation was tried here to defer ~16MB
+    // for a canvas that may never be used, but it means the finale canvas is
+    // 300x150 until its first burst — one missed sizing call and the finale
+    // paints into nothing. Not worth the memory.
     function resize() {
-      if (lazy && !sized) return;
       applySize();
     }
 
@@ -506,7 +496,6 @@
       // frame — up to 1400 forced reflows every frame.
       var vw = layer.clientWidth, vh = layer.clientHeight;
       var gravity = CONFIG.confettiGravity;
-      var lastAlpha = -1, lastFill = null;
 
       ctx.clearRect(0, 0, vw, vh);
 
@@ -527,21 +516,18 @@
           particles.splice(i, 1); continue;   // fell off the bottom
         }
 
-        // One setTransform beats save/translate/rotate/restore: no state stack
-        // push per particle. dpr is folded into the matrix since this replaces
-        // the base transform rather than composing with it.
-        var c = Math.cos(p.rot) * dpr, s = Math.sin(p.rot) * dpr;
-        ctx.setTransform(c, s, -s, c, p.x * dpr, p.y * dpr);
-        // Redundant state writes are the expensive part of canvas2d; skip them
-        // when the value is unchanged. Bursts are one palette, so fillStyle
-        // repeats constantly.
-        if (alpha !== lastAlpha) { ctx.globalAlpha = alpha; lastAlpha = alpha; }
-        if (p.color !== lastFill) { ctx.fillStyle = p.color; lastFill = p.color; }
+        // Plain save/restore. A single setTransform per particle was tried as
+        // an optimisation; it works, but it replaces the base transform rather
+        // than composing with it, so any mistake in the dpr maths silently
+        // draws nothing. Not worth the risk for the frame budget involved.
+        ctx.save();
+        ctx.globalAlpha = alpha;
+        ctx.translate(p.x, p.y);
+        ctx.rotate(p.rot);
+        ctx.fillStyle = p.color;
         ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+        ctx.restore();
       }
-
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      ctx.globalAlpha = 1;
 
       if (particles.length) {
         rafId = requestAnimationFrame(step);
@@ -603,20 +589,26 @@
     return true;
   }
 
-  // Kept as a counter rather than re-scanning the DOM. This is consulted once
-  // per balloon as it lands, so a querySelectorAll + loop made the tail of a
-  // wave O(n^2) for no reason.
-  var liveBalloons = 0;
+  // Counts the DOM each time rather than tracking a counter. The counter was
+  // faster but had to be kept in sync from three places; at ~100 balloons this
+  // costs nothing and cannot drift out of step with what's on screen.
+  var liveBalloons = 0;   // kept only so fill() can report what it built
 
-  function balloonsRemaining() { return liveBalloons; }
+  function balloonsRemaining() {
+    var all = layer.querySelectorAll(".bday_balloon");
+    var n = 0;
+    for (var i = 0; i < all.length; i++) {
+      if (all[i].style.display !== "none") n++;
+    }
+    return n;
+  }
 
   // Single place a balloon leaves the field, so the counter can't drift.
   function hideBalloon(img) {
     if (img.getAttribute("data-bday-gone") === "1") return;
     img.setAttribute("data-bday-gone", "1");
     img.style.display = "none";
-    liveBalloons--;
-    if (liveBalloons <= 0 && !finaleFired) finale();
+    if (!finaleFired && balloonsRemaining() === 0) finale();
   }
 
   // ── crosshair pointer ─────────────────────────────────────────────────
@@ -830,9 +822,6 @@
         img.className = "bday_balloon";
         img.src = srcFor(color, 1);
         img.alt = "";
-        // Decoding 100 images synchronously blocks the first paint; async lets
-        // the browser fold them in as they arrive.
-        img.decoding = "async";
         img.setAttribute("aria-hidden", "true");
         img.setAttribute("data-bday-color", color);
         img.setAttribute("data-bday-cell", col + "," + row);
@@ -877,12 +866,12 @@
     fill();
   }
 
-  // Coalesce to one rebuild per frame. A drag-resize fires resize continuously,
-  // and each one rebuilt ~100 <img> nodes and reallocated both canvases.
+  // Applied directly. rAF-coalescing was tried here to avoid rebuilding ~100
+  // nodes per resize event, but it means nothing lays out until the browser
+  // grants a frame — and a background tab never does, so a resize while hidden
+  // silently never applies.
   var resizeRaf = null;
-  function onResize() {
-    if (resizeRaf === null) resizeRaf = requestAnimationFrame(applyResize);
-  }
+  function onResize() { applyResize(); }
 
   function applySize() {
     root.style.setProperty("--bday-balloon-size", CONFIG.balloonSize + "px");

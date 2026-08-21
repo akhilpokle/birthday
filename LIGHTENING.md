@@ -8,7 +8,29 @@ lines across three files and is not the problem.
 
 ---
 
-## 1. Code — applied
+> ## ⚠️ §1 was REVERTED on 2026-08-21
+>
+> The runtime optimisations below were backed out after confetti failed to
+> appear on a managed laptop. They are kept here as a record of what was
+> measured and why it was undone — **not as a description of the current code.**
+>
+> Reverted: `desynchronized` context option, lazy finale-canvas allocation,
+> `requestIdleCallback` preload draining, per-particle `setTransform`, the
+> rAF-coalesced resize, the balloon counter, the timer-id object, and
+> `decoding="async"`.
+>
+> **Kept**, because they are bug fixes rather than optimisations: the zero-size
+> init guard and the `ResizeObserver`, plus `diagnose()`.
+>
+> The three with real failure modes on a locked-down machine were:
+> **lazy canvas** (one missed sizing call and the finale paints into a 300×150
+> buffer), **idle preload** (idle callbacks can be starved indefinitely, so a
+> pop animates against an empty cache), and **rAF-coalesced resize** (a
+> background tab never grants a frame, so the layout never applies).
+>
+> §2 and §3 — the asset work — are unaffected and still stand.
+
+## 1. Code — applied, then reverted (see warning above)
 
 Measured problems, not speculative tidying.
 
