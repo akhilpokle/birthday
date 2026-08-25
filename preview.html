@@ -134,6 +134,11 @@
     { key: "maxTilt",     label: "Tilt",          min: 0,   max: 30,  step: 1,    unit: "°" },
     { key: "frameMs",     label: "Frame gap",     min: 30,  max: 400, step: 10,   unit: "ms" },
     { key: "wavePxPerMs", label: "Wave speed",    min: 0.2, max: 6,   step: 0.1,  unit: "px/ms" },
+    { key: "popLayers",   label: "Layers",        min: 1,   max: 3,   step: 1,
+      format: function (v) {
+        var n = (2 * v + 1) * (2 * v + 1);
+        return v + " (" + n + " balloons)";
+      } },
     { group: "Confetti" },
     { key: "confettiCount",    label: "Count",    min: 0,   max: 200, step: 5 },
     { key: "confettiSize",     label: "Size",     min: 0.3, max: 4,   step: 0.1, unit: "×" },
@@ -154,6 +159,53 @@
       velocity: window.bday.config.confettiVelocity,
       fade: !!window.bday.config.confettiFade
     });
+  }
+
+  var POP_LABELS = { colour: "Same colour", proximity: "Proximity" };
+
+  function buildPopSwitcher(body, api) {
+    var h = document.createElement("h2");
+    h.textContent = "Pop mode";
+    body.appendChild(h);
+
+    var seg = document.createElement("div");
+    seg.className = "seg";
+    seg.setAttribute("role", "radiogroup");
+    seg.setAttribute("aria-label", "What a click pops");
+
+    (api.popModes || ["colour", "proximity"]).forEach(function (mode) {
+      var label = document.createElement("label");
+      var input = document.createElement("input");
+      input.type = "radio";
+      input.name = "bday_popmode";
+      input.value = mode;
+      input.checked = api.config.popMode === mode;
+
+      var text = document.createElement("span");
+      text.textContent = POP_LABELS[mode] || mode;
+
+      input.addEventListener("change", function () {
+        if (!input.checked) return;
+        window.bday.setPopMode(mode);
+        syncLayersEnabled();
+      });
+
+      label.appendChild(input);
+      label.appendChild(text);
+      seg.appendChild(label);
+    });
+
+    body.appendChild(seg);
+  }
+
+  // The Layers slider only means anything in proximity mode. Disabling it is
+  // clearer than leaving a live control that silently does nothing.
+  function syncLayersEnabled() {
+    var s = document.getElementById("tune_popLayers");
+    if (!s) return;
+    var on = window.bday.config.popMode === "proximity";
+    s.disabled = !on;
+    s.closest("label").style.opacity = on ? "" : "0.4";
   }
 
   var POINTER_LABELS = { pin: "Pin", crosshair: "Crosshair", "default": "Normal" };
@@ -206,6 +258,7 @@
     var body = document.getElementById("tunerBody");
     body.textContent = "";
 
+    buildPopSwitcher(body, api);
     buildPointerSwitcher(body, api);
 
     CONTROLS.forEach(function (c) {
@@ -241,17 +294,19 @@
       }
       show();
 
-      // Confetti values are read at burst time, so they need no rebuild — and
-      // rebuilding would wipe the field you're looking at. Fire a sample
-      // instead, throttled so dragging doesn't emit one per input event.
+      // Confetti values are read at burst time and popLayers at click time, so
+      // neither needs a rebuild — and rebuilding would wipe the field you're
+      // looking at. Confetti fires a sample instead, throttled so dragging
+      // doesn't emit one per input event.
       var isConfetti = c.key.indexOf("confetti") === 0;
+      var isLive = isConfetti || c.key === "popLayers";
 
       input.addEventListener("input", function () {
         show();
         var v = parseFloat(input.value);
-        if (isConfetti) {
+        if (isLive) {
           window.bday.config[c.key] = v;
-          previewBurst();
+          if (isConfetti) previewBurst();
         } else {
           var patch = {};
           patch[c.key] = v;
@@ -280,6 +335,8 @@
     document.addEventListener("keydown", function (e) {
       if (e.key === "Escape" && !panel.hidden) setPanel(false);
     });
+
+    syncLayersEnabled();
 
     document.getElementById("resetField").addEventListener("click", function () {
       window.bday.reset();

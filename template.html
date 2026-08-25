@@ -251,7 +251,12 @@
   var layer = document.getElementById("bday_balloons");
 
   var COLORS = ["Blue", "Green", "Red", "Sage", "Yellow"];
-  var FRAMES   = 5;    // "<Colour> 1".."<Colour> 5" — intact to dispersed
+  // The artwork ships 5 frames per colour (intact → cracked → split → shattered
+  // → dispersed), but only the odd ones are used: 1 → 3 → 5. The even frames are
+  // never referenced and never fetched — preloadFrames() walks this same list,
+  // so adding a frame here is the only change needed to bring one back.
+  var POP_FRAMES = [1, 3, 5];
+  var LAST_FRAME = POP_FRAMES[POP_FRAMES.length - 1];
   var Z_LEVELS = 100;  // distinct stacking depths, so overlaps interleave
 
   // Every tunable value in one object so the preview harness can drive them
@@ -271,6 +276,13 @@
     confettiSize:     1,
     confettiVelocity: 200,
     confettiFade:     0,    // 0 = fall off screen, 1 = fade out in place
+
+    // What a click takes out. "colour" pops every balloon of the clicked
+    // colour; "proximity" pops the clicked balloon plus popLayers rings of
+    // neighbours around it. Read at click time — no rebuild needed, so set
+    // these via setPopMode()/config rather than setConfig().
+    popMode:   "colour",
+    popLayers: 1,          // rings: 1 => 9 balloons, 2 => 25, 3 => 49
 
     // "pin" | "crosshair" | "default" — change via setPointer(), not setConfig()
     pointer: "default"
@@ -354,20 +366,16 @@
   // Frames 2-5 are only fetched when a balloon pops. Without warming them the
   // first pop of each colour animates against an empty cache and stutters.
   //
-  // Deferred to idle: this is ~5MB across 20 files, and firing it during load
-  // put it in direct contention with the 5 frame-1 images the user can actually
-  // see. Nothing can pop until the field is rendered and clicked, so there is
-  // no reason for it to compete.
-  // Loaded straight away, all 20. Draining this through requestIdleCallback was
-  // tried to keep it off the critical path, but idle callbacks can be starved
-  // indefinitely on a busy or policy-throttled machine — and if a frame hasn't
-  // arrived when a balloon pops, the pop animates against an empty cache.
+  // Warmed straight away rather than through requestIdleCallback: idle callbacks
+  // can be starved indefinitely on a busy or policy-throttled machine, and a
+  // frame that hasn't arrived when a balloon pops animates against an empty
+  // cache. Walks POP_FRAMES, so the unused even frames are never fetched.
   var preloaded = [];
   function preloadFrames() {
     for (var c = 0; c < COLORS.length; c++) {
-      for (var f = 2; f <= FRAMES; f++) {
+      for (var i = 1; i < POP_FRAMES.length; i++) {   // frame 1 is already in the DOM
         var im = new Image();
-        im.src = srcFor(COLORS[c], f);
+        im.src = srcFor(COLORS[c], POP_FRAMES[i]);
         preloaded.push(im);   // hold a reference so it isn't collected
       }
     }
@@ -464,6 +472,17 @@
     root.removeAttribute("data-bday-cursor");
   }
 
+  var POP_MODES = ["colour", "proximity"];
+
+  // Applies immediately. Unlike setConfig() this does not rebuild the field —
+  // pop behaviour is read at click time, and rebuilding would clear the popped
+  // set just to change what the next click does.
+  function setPopMode(mode) {
+    if (POP_MODES.indexOf(mode) === -1) return CONFIG.popMode;
+    CONFIG.popMode = mode;
+    return mode;
+  }
+
   var POINTER_MODES = ["pin", "crosshair", "default"];
 
   // Cursor changes take effect immediately — unlike setConfig(), which rebuilds
@@ -483,14 +502,17 @@
     return mode;
   }
 
-  // Runs one balloon through frames 2..5, then takes it out of the layout.
+  // Runs one balloon through POP_FRAMES (1 → 3 → 5), then takes it out of the
+  // layout. Frame timing stays keyed to the frame number, not to its index, so
+  // skipping the even frames holds each remaining one twice as long rather than
+  // making the whole pop shorter.
   function popOne(img) {
     if (reduceMq.matches) {
       hideBalloon(img);
       return;
     }
     var color = img.getAttribute("data-bday-color");
-    for (var f = 2; f <= FRAMES; f++) {
+    for (var i = 1; i < POP_FRAMES.length; i++) {
       (function (frame) {
         later(function () {
           if (!img.isConnected) return;
@@ -510,24 +532,52 @@
             });
           }
         }, (frame - 1) * CONFIG.frameMs);
-      })(f);
+      })(POP_FRAMES[i]);
     }
     later(function () {
       if (img.isConnected) hideBalloon(img);
-    }, FRAMES * CONFIG.frameMs);
+    }, LAST_FRAME * CONFIG.frameMs);
   }
 
   // Pops every balloon sharing the clicked one's colour, scheduled by distance
   // so the pop travels outward as a wave. Delay is proportional to distance
   // rather than to rank, so balloons at a similar radius go together and the
   // chain reads as one expanding front.
+  function cellOf(el) {
+    var s = (el.getAttribute("data-bday-cell") || "0,0").split(",");
+    return { col: +s[0], row: +s[1] };
+  }
+
+  // Which balloons a click takes out. Both modes feed the same distance-ordered
+  // scheduler below, so either way the pop still travels outward as a wave.
+  function targetsFor(origin) {
+    if (CONFIG.popMode === "proximity") {
+      // Chebyshev distance in grid cells, so "1 layer" is the ring of 8 around
+      // the clicked balloon (9 total), "2 layers" the 24 around it (25 total).
+      // Measured in cells rather than pixels because the field is a jittered
+      // brick grid — pixel radii would catch a lopsided set near the edges.
+      var oc = cellOf(origin);
+      var reach = CONFIG.popLayers;
+      var all = layer.querySelectorAll(".bday_balloon");
+      var hit = [];
+      for (var i = 0; i < all.length; i++) {
+        var c = cellOf(all[i]);
+        if (Math.max(Math.abs(c.col - oc.col), Math.abs(c.row - oc.row)) <= reach) {
+          hit.push(all[i]);
+        }
+      }
+      return hit;
+    }
+    return layer.querySelectorAll(
+      '.bday_balloon[data-bday-color="' + origin.getAttribute("data-bday-color") + '"]');
+  }
+
   function popWave(origin) {
-    var color = origin.getAttribute("data-bday-color");
     var o = origin.getBoundingClientRect();
     var ox = o.left + o.width / 2;
     var oy = o.top + o.height / 2;
 
-    var all = layer.querySelectorAll('.bday_balloon[data-bday-color="' + color + '"]');
+    var all = targetsFor(origin);
 
     // Two passes on purpose. data-bday-popping drives a CSS rule, so writing it
     // invalidates style — interleaving that with getBoundingClientRect() forced
@@ -711,6 +761,8 @@
     reset: rebuild,
     confetti: burst,   // guarded wrapper, not window.confetti directly
     balloonsRemaining: balloonsRemaining,
+    popModes: POP_MODES,
+    setPopMode: setPopMode,
     pointerModes: POINTER_MODES,
     setPointer: setPointer,
 
@@ -726,6 +778,8 @@
         balloonsInDom: layer.querySelectorAll(".bday_balloon").length,
         balloonsRemaining: balloonsRemaining(),
         layerSize: layer.clientWidth + "x" + layer.clientHeight,
+        popMode: CONFIG.popMode,
+        popLayers: CONFIG.popLayers,
         devicePixelRatio: window.devicePixelRatio || 1,
         pointerMode: CONFIG.pointer,
         userAgent: navigator.userAgent

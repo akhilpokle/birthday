@@ -95,12 +95,31 @@ ARIA for a widget pattern arrives with the widget.
                 logic; the layering does the work.
 ```
 
-**Click interaction.** Clicking a balloon runs it through frames 1→5 at `frameMs`
-intervals, then hides it, and pops every balloon of the same colour as an outward
+**Click interaction.** Clicking a balloon runs it through `POP_FRAMES` at
+`frameMs` intervals, then hides it, and pops a set of neighbours as an outward
 wave — delay is `distance / wavePxPerMs`, so balloons at a similar radius go
-together and the chain reads as one expanding front rather than a queue. (Current
-values are in the tuning-panel note below; the code reads them from `CONFIG`, so
-prose here deliberately doesn't repeat the numbers.)
+together and the chain reads as one expanding front rather than a queue.
+
+**Frames: only the odd ones are used** — 1 → 3 → 5 (intact → split → dispersed).
+The even frames are neither referenced nor fetched; `preloadFrames()` walks the
+same `POP_FRAMES` list, so adding one back is a single-line change. Timing stays
+keyed to the frame *number*, not its index, so skipping the evens holds each
+remaining frame twice as long rather than shortening the pop. The 10 even-frame
+files (988KB) are now dead weight in `Assets/` — see `BACKLOG.md` §3.
+
+**Two pop modes**, switchable at runtime via `window.bday.setPopMode()`:
+
+- `colour` (default) — every balloon of the clicked colour.
+- `proximity` — the clicked balloon plus `popLayers` rings of neighbours,
+  measured as **Chebyshev distance in grid cells**, not pixels. 1 layer = 9
+  balloons, 2 = 25, 3 = 49, clipped at the field's edges. Cells rather than a
+  pixel radius because the field is a jittered brick grid, where a radius would
+  catch a lopsided set near the edges.
+
+Both feed the same distance-ordered scheduler, so the wave behaves identically
+either way. Like `setPointer()`, neither is part of `setConfig()` — pop
+behaviour is read at click time, and a rebuild would clear the popped set just
+to change what the *next* click does.
 
 - Popped cells are recorded at *click* time, not when the animation ends, so a
   resize mid-wave can't resurrect a balloon that's already on its way out.

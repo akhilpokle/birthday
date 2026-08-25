@@ -111,6 +111,12 @@ the code, not just the content.
 
 ## 3. Assets
 
+- [ ] **The 10 even-frame files are now unused — 988KB.** Frames 2 and 4 of every
+      colour are neither referenced nor fetched since the pop moved to 1 → 3 → 5.
+      Verified by resource timing: 15 requests, 5 each for frames 1/3/5, zero for
+      2/4. Delete them once the odd-only sequence is signed off by eye — keep them
+      until then, since restoring a frame is a one-line change but re-exporting
+      artwork is not.
 - [ ] **Asset weight has its own file now — see `LIGHTENING.md`.** Summary: the
       sources are 800×800 rendering at 208px, `Assets/` is 7.9MB, and resizing
       plus compression should get it to ~1.5MB. The code-side work is already done.
