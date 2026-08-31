@@ -117,9 +117,17 @@ the code, not just the content.
       2/4. Delete them once the odd-only sequence is signed off by eye — keep them
       until then, since restoring a frame is a one-line change but re-exporting
       artwork is not.
-- [ ] **Asset weight has its own file now — see `LIGHTENING.md`.** Summary: the
-      sources are 800×800 rendering at 208px, `Assets/` is 7.9MB, and resizing
-      plus compression should get it to ~1.5MB. The code-side work is already done.
+- [ ] **Asset weight has its own file now — see `LIGHTENING.md`.** Summary:
+      `Assets/` is 3.9MB after the compression pass; resizing the sources would
+      get it to ~1.5MB. Note the render size is no longer fixed — it now varies
+      228–526px with the viewport, so the 800px sources are between 3.5× and
+      1.5× oversized depending on screen. Any resize target has to cover the
+      largest case, not the average.
+- [ ] **`round pin.png` is 512px but cursors cap at 128px.** `round-pin-64.png`
+      is the generated 64px version actually used; the 512px original is kept as
+      the source. Regenerate with the PowerShell/System.Drawing resize recorded
+      in the playbook if the art changes — editing the 512px file alone does
+      nothing.
 - [ ] **Frames aren't registered to a common centre.** Alpha-weighted centroids drift
       across each sequence — Red 5 sits ~95px left and ~113px below Red 1 (>10% of the
       canvas). Swapping frames in place makes the balloon visibly jump, worst in Red.
@@ -176,7 +184,9 @@ build: screenshots timed out all session, timers were throttled to ~1Hz, and
 `requestAnimationFrame` was suspended entirely.
 
 - [ ] **Nothing has been confirmed by eye.** Not the gradient, not the balloon
-      density, not the pop.
+      density, not the pop, not the pushpin cursor. Three sizing numbers are
+      unreviewed defaults: `balloonScale 1.78` (chosen to reproduce the approved
+      320px at 1440×900), `MAX_BALLOON_PX 360` and `HARD_MAX_BALLOONS 110`.
 - [ ] **Pop cadence unmeasured.** `frameMs: 30` means 5 frames in 120ms. Whether the
       crack and shatter stages are perceptible at that speed is unknown.
 - [ ] **The reduced-motion path is code-inspected only** — the media query couldn't

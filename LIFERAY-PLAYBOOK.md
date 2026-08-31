@@ -95,6 +95,45 @@ ARIA for a widget pattern arrives with the widget.
                 logic; the layering does the work.
 ```
 
+**Sizing: count and size are both derived, not configured.** The only knob is
+`balloonScale` — the balloon's size as a multiple of its grid cell. Everything
+else falls out of the viewport:
+
+1. `grid()` picks the rows/cols that keep cells closest to square, clamped into
+   `MIN_BALLOONS`–`MAX_BALLOONS` (40–50).
+2. `balloonPxFor()` derives the pixel size as `balloonScale × max(cellW, cellH)`.
+   The larger dimension, so neighbours still overlap on odd aspect ratios; `min`
+   would open gaps on a very wide screen.
+3. Above `MAX_BALLOON_PX` (360) the grid grows instead of the balloons, up to
+   `HARD_MAX_BALLOONS` (110).
+
+This replaced a fixed `balloonSize`, under which the balloon-to-cell ratio
+drifted with the viewport — 1.78× the cell at 1440×900 but 2.19× at 1024×768 —
+and count never moved, so a 27" monitor got the same composition simply zoomed:
+320px balloons at 1440×900 became **513px** at 2560×1440, nearly three-quarters
+the width of the message card.
+
+| Viewport | Grid | Count | Balloon |
+| --- | --- | --- | --- |
+| 1024×768 | 8×6 | 48 | 228px |
+| 1440×900 | 9×5 | 45 | 320px |
+| 1920×1080 | 10×6 | 60 | 342px |
+| 2560×1440 | 13×8 | 104 | 351px |
+| 3840×2160 | 13×8 | 104 | 526px *(ceiling)* |
+
+Ratio holds at ~1.78 up to the cap; zero coverage gaps at every size. At 4K the
+cap cannot be met within 110 balloons — that would need ~209 — so size drifts up
+there by design.
+
+**The growth loop must balance the axes.** It grows whichever of cols/rows
+currently has the *larger* cell. Two sequential loops (width fully, then height)
+look equivalent and are not: at 3840×2160 the width loop consumed the whole
+budget at 19 columns, leaving rows at 5, so cells were 202 wide by 432 tall — and
+size takes the max, producing **769px balloons, worse than doing nothing**.
+
+Counts above 50 are cheap: every balloon reuses one of 5 source images, so more
+elements cost paint area, not image decodes.
+
 **Click interaction.** Clicking a balloon runs it through `POP_FRAMES` at
 `frameMs` intervals, then hides it, and pops a set of neighbours as an outward
 wave — delay is `distance / wavePxPerMs`, so balloons at a similar radius go
@@ -160,23 +199,44 @@ This replaced a hand-written particle system that was removed on 2026-08-21;
 that version is in git history at `cad8da7` and earlier.
 
 **Pointer.** Three modes, switchable at runtime via `window.bday.setPointer()`:
-`pin` (default, native cursor), `crosshair` (JS-tracked reticle plus
-full-viewport rules), `default` (host cursor untouched). Driven by
-`data-bday-pointer` on the root. Deliberately *not* part of `setConfig()` —
+`default` (shipped — arrow on the backdrop, 📌 pushpin over a balloon),
+`pin` (`pin.svg` everywhere), `crosshair` (JS-tracked reticle plus full-viewport
+rules). Driven by `data-bday-pointer` on the root.
+
+The pushpin is `Assets/round-pin-64.png`, a 64px downscale of the 512px
+`round pin.png` **generated because Chrome ignores cursor images over 128px** —
+pointing the cursor at the original would silently fall back to `pointer` with
+no error. Hotspot `0 63` is the needle tip, measured from the artwork's alpha
+rather than guessed. Regenerate it with the same PowerShell/System.Drawing
+resize if the source art changes; the source stays in `Assets/` for that. Deliberately *not* part of `setConfig()` —
 that rebuilds the field and would wipe the popped set just to swap a cursor.
 The crosshair listeners stay attached in all modes and early-return, so the pin
 and default modes run no per-move JS at all. Which one ships is still open: the
 crosshair reads as a targeting scope, which is a questionable register for a
 birthday.
 
-**Tuning panel.** `preview.html` carries 6 sliders and a pointer switcher,
-driving `window.bday.config` via `setConfig()`. `×` or Esc hides it; a `tune`
-pill brings it back. The defaults in `CONFIG` are the values signed off on
-2026-08-21 — 208px balloons, 12° tilt, 0.17 scatter, 30ms frames, 2px/ms wave,
-pointer `default`. "Copy config" puts the current values on the clipboard. The
-panel is **preview-only** — per §1, dev UI does not ship in the fragment. What
-does ship is the small `config` / `setConfig` / `reset` / `setPointer` /
-`diagnose` API it drives.
+**Tuning panel.** `preview.html` carries 10 sliders, a pop-mode switcher, a
+pointer switcher and a readout, driving `window.bday.config` via `setConfig()`.
+`×` or Esc hides it; a `tune` pill brings it back.
+
+Count and pixel size are **outputs** now, so the panel reports them
+(`45 balloons · 320px · viewport 1440×900`) rather than controlling them. The
+old `Balloon count` and `Balloon size` sliders are gone — leaving them would
+have been silently inert once those keys left `CONFIG`.
+
+Current `CONFIG`: `balloonScale 1.78`, 12° tilt, 0.17 scatter, 30ms frames,
+2px/ms wave, confetti 40 at size 1 / velocity 200, pop mode `colour`, pointer
+`default`. **`balloonScale`, `MAX_BALLOON_PX` and `HARD_MAX_BALLOONS` have not
+been confirmed by eye** — 1.78 was chosen to reproduce the 320px balloons
+approved at 1440×900; the other two are unreviewed defaults.
+
+Note this **invalidates any config JSON saved before 2026-08-21** — `maxBalloons`
+and `balloonSize` no longer exist and are silently ignored by `setConfig()`. Use
+"Copy config" to get the current shape.
+
+The panel is **preview-only** — per §1, dev UI does not ship in the fragment.
+What does ship is the small `config` / `setConfig` / `reset` / `setPopMode` /
+`setPointer` / `diagnose` API it drives.
 
 **Open items** live in `BACKLOG.md` — the invented gradient alpha, asset sizing and
 frame registration, the unanswered brief questions, verification gaps, packaging.

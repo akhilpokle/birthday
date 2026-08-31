@@ -97,10 +97,16 @@
                — kept switchable so the difference can be judged side by side.
    "default"   the host page's own cursor, untouched. */
 .bday_root[data-bday-pointer="pin"] { cursor: url('Assets/pin.svg') 3 3, auto; }
-/* "default" leaves the arrow on the backdrop and shows the click cursor on the
-   balloons — the conventional signal that a thing is clickable. */
+/* "default" leaves the arrow on the backdrop and swaps to the pushpin over a
+   balloon — the thing you'd actually pop it with.
+   round-pin-64.png is a 64px downscale of Assets/round pin.png, generated
+   because Chrome ignores cursor images larger than 128px and the source is
+   512px. Hotspot 0 63 is the needle tip, measured from the artwork's alpha.
+   `pointer` is the fallback if the image is rejected or fails to load. */
 .bday_root[data-bday-pointer="default"] { cursor: default; }
-.bday_root[data-bday-pointer="default"] .bday_balloon { cursor: pointer; }
+.bday_root[data-bday-pointer="default"] .bday_balloon {
+  cursor: url('Assets/round-pin-64.png') 0 63, pointer;
+}
 
 /* The system cursor is hidden only once the crosshair is actually tracking
    (data-bday-cursor, set on first pointermove), so a script failure can't leave
@@ -263,8 +269,11 @@
   // through window.bday.setConfig(). Defaults here are the shipped values —
   // the panel is a test tool, these are what the fragment renders with.
   var CONFIG = {
-    maxBalloons:  100,  // hard ceiling — denser than this reads as noise
-    balloonSize:  208,  // px
+    // Balloon size as a multiple of the grid cell. This is the knob now — the
+    // pixel size is derived from it and the viewport, so the field looks the
+    // same proportionally on any screen. 1.78 reproduces the 320px balloons
+    // that were signed off at 1440x900.
+    balloonScale: 1.78,
     jitterRatio:  0.17, // offset from cell centre, as a fraction of the cell
     maxTilt:      12,   // degrees, applied as -maxTilt..+maxTilt
     frameMs:      30,   // gap between pop frames; a pop runs 4*frameMs = 120ms
@@ -314,22 +323,64 @@
     return "Assets/" + encodeURIComponent(color + " " + frame) + ".png";
   }
 
-  // Derive the grid from the cap rather than from a fixed spacing: pick the
-  // row count that keeps cells closest to square for this viewport, then take
-  // as many columns as the budget allows. Guarantees cols*rows <= maxBalloons
-  // at any width instead of scaling with the viewport.
+  // Count is an output, not an input. Pick the row count that keeps cells
+  // closest to square for this viewport, then take the columns that land the
+  // total inside [MIN_BALLOONS, MAX_BALLOONS]. Balloon size is then derived
+  // from the resulting cell — see cellSizeFor() — so the balloon-to-cell ratio
+  // stays constant across viewports instead of drifting the way a fixed
+  // balloonSize did (1.78x the cell at 1440x900 but 2.19x at 1024x768).
   //
   // jitterRatio note: the grid exists only to keep the field evenly spread. At
   // 0.45 a balloon lands almost anywhere in its cell, which is what stops the
   // result reading as rows and columns. Much above 0.5 and cells start trading
   // places, which clumps and leaves holes.
   function grid(w, h) {
-    // A zero measurement makes maxBalloons*h/w NaN, and `row < NaN` is false, so
-    // the fill loop silently produces nothing. Bail explicitly instead.
+    // A zero measurement makes the sqrt NaN, and `row < NaN` is false, so the
+    // fill loop silently produces nothing. Bail explicitly instead.
     if (!(w > 0) || !(h > 0)) return { cols: 0, rows: 0 };
-    var rows = Math.max(1, Math.round(Math.sqrt(CONFIG.maxBalloons * h / w)));
-    var cols = Math.max(1, Math.floor(CONFIG.maxBalloons / rows));
+    var target = (MIN_BALLOONS + MAX_BALLOONS) / 2;
+    var rows = Math.max(1, Math.round(Math.sqrt(target * h / w)));
+    var cols = Math.max(1, Math.round(target / rows));
+    // Nudge columns until the product sits inside the band. Adjusting cols
+    // rather than clamping the number keeps cols*rows equal to the balloons
+    // actually built.
+    while (cols * rows > MAX_BALLOONS && cols > 1) cols--;
+    while (cols * rows < MIN_BALLOONS) cols++;
+
+    // Large screens grow the grid rather than the balloons. This works because
+    // balloonPxFor() derives size from the cell, so constraining the cell
+    // constrains the size — no second mechanism needed.
+    //
+    // Each pass grows whichever axis has the larger cell. Two sequential loops
+    // (width fully, then height) look equivalent but are not: at 3840x2160 the
+    // width loop consumed the whole budget at 19 columns, leaving rows stuck at
+    // 5, so cells were 202 wide but 432 tall — and size takes the max, giving
+    // 769px balloons. Worse than doing nothing.
+    var maxCell = MAX_BALLOON_PX / CONFIG.balloonScale;
+    while (cols * rows < HARD_MAX_BALLOONS) {
+      var cw = w / cols, ch = h / rows;
+      if (cw <= maxCell && ch <= maxCell) break;          // both within the cap
+      var growCols = cw >= ch;
+      // If the preferred axis has no headroom, try the other before giving up.
+      if (growCols && (cols + 1) * rows > HARD_MAX_BALLOONS) growCols = false;
+      else if (!growCols && cols * (rows + 1) > HARD_MAX_BALLOONS) growCols = true;
+      if (growCols) {
+        if ((cols + 1) * rows > HARD_MAX_BALLOONS) break;
+        cols++;
+      } else {
+        if (cols * (rows + 1) > HARD_MAX_BALLOONS) break;
+        rows++;
+      }
+    }
+
     return { cols: cols, rows: rows };
+  }
+
+  // The balloon is sized off the larger cell dimension so neighbours still
+  // overlap on unusual aspect ratios; min() would open gaps on a very wide
+  // screen.
+  function balloonPxFor(w, h, g) {
+    return Math.round(CONFIG.balloonScale * Math.max(w / g.cols, h / g.rows));
   }
 
   // Deterministic value in [0,1) from a cell + salt. Seeded rather than
@@ -471,6 +522,23 @@
     ptrLayer.hidden = true;
     root.removeAttribute("data-bday-cursor");
   }
+
+  // The count band. Not in CONFIG: these bound the design rather than tune it,
+  // and a slider that could take the field to 3 balloons is not a useful knob.
+  var MIN_BALLOONS = 40;
+  var MAX_BALLOONS = 50;
+
+  // Above this pixel size the grid grows instead of the balloons. Without it
+  // count stayed at ~45 on every screen and the field was simply zoomed: 320px
+  // balloons at 1440x900 became 513px at 2560x1440, nearly three-quarters the
+  // width of the message card and only 1.56x down from the 800px source.
+  var MAX_BALLOON_PX = 360;
+
+  // Stops a very large display generating hundreds. Counts above MAX_BALLOONS
+  // are the point on big screens, so this is the real ceiling — MAX_BALLOONS
+  // only shapes the starting grid. Cheap either way: every balloon reuses one
+  // of 5 source images, so more elements cost paint area, not decodes.
+  var HARD_MAX_BALLOONS = 110;
 
   var POP_MODES = ["colour", "proximity"];
 
@@ -695,6 +763,10 @@
     lastRows = g.rows;
     lastW = w;
     lastH = h;
+    // Size is derived from the cell, so it has to be recomputed here on every
+    // resize — not once at init. Setting it before fill() means the balloons
+    // are laid out against the size they will actually render at.
+    applySize(w, h, g);
     // Rule lengths are measured off the viewport, so they go stale on a resize
     // that doesn't move the mouse.
     if (ptrLive) drawPointer();
@@ -708,8 +780,12 @@
   var resizeRaf = null;
   function onResize() { applyResize(); }
 
-  function applySize() {
-    root.style.setProperty("--bday-balloon-size", CONFIG.balloonSize + "px");
+  // Derived, not configured. Called from applyResize() with the dimensions it
+  // already measured, so this never re-reads layout.
+  var lastBalloonPx = 0;
+  function applySize(w, h, g) {
+    lastBalloonPx = balloonPxFor(w, h, g);
+    root.style.setProperty("--bday-balloon-size", lastBalloonPx + "px");
   }
 
   // Rebuild from scratch. Tuning is a deliberate act, so it also clears the
@@ -718,12 +794,12 @@
   function rebuild() {
     clearTimers();
     popped = Object.create(null);
-    applySize();
+    // No applySize() here — applyResize() derives and sets it, and calling it
+    // without the measured dimensions would write NaN.
     lastCols = lastRows = lastW = lastH = -1;
     applyResize();   // synchronous: callers expect the field to exist on return
   }
 
-  applySize();
   applyResize();
   window.addEventListener("resize", onResize);
 
@@ -778,6 +854,11 @@
         balloonsInDom: layer.querySelectorAll(".bday_balloon").length,
         balloonsRemaining: balloonsRemaining(),
         layerSize: layer.clientWidth + "x" + layer.clientHeight,
+        // Derived from the viewport, not configured — see grid()/balloonPxFor.
+        balloonPx: lastBalloonPx,
+        balloonScale: CONFIG.balloonScale,
+        countBand: MIN_BALLOONS + "-" + MAX_BALLOONS + " (grows to " +
+                   HARD_MAX_BALLOONS + " above " + MAX_BALLOON_PX + "px)",
         popMode: CONFIG.popMode,
         popLayers: CONFIG.popLayers,
         devicePixelRatio: window.devicePixelRatio || 1,
