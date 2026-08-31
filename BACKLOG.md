@@ -14,45 +14,39 @@ the things at the bottom are chores.
 
 ## 1. Unanswered brief questions — these change the architecture
 
-None of the conversion playbook's §0 questions have been settled. Answers change
-the code, not just the content.
+**Most of these were settled on 2026-08-31.** What remains is listed after.
 
-- [ ] **Where does this live?** Its own page, a full-screen overlay on top of the
-      live intranet, or an inline block? Currently built as a `position: fixed`
-      full-viewport takeover. The disambiguating question is *"when it's dismissed,
-      what does the user see?"*
-- [ ] **Should the background layer exist at all?** It's currently
-      `Assets/background.svg` — a generic placeholder dashboard, swapped in on
-      2026-08-20 so the public GitHub Pages repo wouldn't carry a real intranet
-      capture. If this is meant to sit *over* the live page, the `<img>` should be
-      deleted entirely and `backdrop-filter` left to blur the real content
-      underneath. **This is the single biggest open question in the project.**
-      The original screenshot is at `_local/background-REAL-do-not-publish.png`
-      (gitignored) — it shows one named user's dashboard, so it could never have
-      shipped as-is anyway.
-- [ ] **Who sees it, how often?** No gating, no once-per-user persistence. Reloading
-      restores every popped balloon.
-- [ ] **How is it dismissed?** There's no close control, no Esc handler, no
-      `open()`/`close()`. `destroy()` exists but nothing calls it.
-- [ ] **"Timothy" is hardcoded.** The heading reads "Happy birthday Timothy!" —
-      the name must come from Liferay user context or every employee gets
-      Timothy's card. Same for anything date-dependent ("this month").
-- [ ] **Copy needs sign-off.** Two typos were corrected on the way in — "Dont" →
-      "Don't" and a stray space in "Timothy !". Flagging rather than burying:
-      revert either if they were deliberate.
-- [ ] **Public Sans is assumed, not loaded.** The fragment declares the family and
-      falls back to `system-ui`; only `preview.html` actually fetches the webfont,
-      from the Google CDN. Confirm the real theme serves Public Sans — if not it
-      needs self-hosting, since a strict CSP will block the CDN.
-- [ ] **The card's text area has almost no headroom left.** At the specced 702px
-      card with 32/20px type, clearance between the copy and the printed balloon
-      band is **46px** — down from 144px when the card was 1040px wide. Measured
-      failure points: a long name wraps the heading to two lines and leaves
-      **7px**; one extra sentence of body copy leaves **16px**. Neither overflows
-      today, but there is no room for real user data to be longer than
-      "Timothy". Either the copy needs a hard length limit, or the type should
-      scale with the card, or the text needs its own area rather than sitting on
-      the artwork's blank band.
+- [x] ~~**Where does this live?**~~ **A full-screen overlay on top of the live
+      intranet.** Settled 2026-08-31.
+- [x] ~~**Should the background layer exist at all?**~~ **No — deleted.** This
+      was the single biggest open question. `Assets/background.svg` is gone and
+      `backdrop-filter` now blurs the real page behind the takeover. Verified by
+      resource timing: no background image is requested.
+- [x] ~~**How is it dismissed?**~~ A 32×32 close button (top right) plus Esc,
+      with `open()`/`close()` on the public API. Focus moves to the button on
+      init and back to the previous element on close.
+- [x] ~~**Copy needs sign-off.**~~ Signed off 2026-08-31, typo corrections and
+      all.
+- [x] ~~**Public Sans is assumed, not loaded.**~~ Confirmed 2026-08-31: the real
+      theme serves it. The fragment must still never fetch the webfont itself.
+- [x] ~~**The card's text area has almost no headroom left.**~~ Accepted
+      2026-08-31 — a long name is allowed to wrap the heading onto a second
+      line. Clearance is 46px, dropping to 7px when it wraps; it does not
+      overflow. The developer comment on the heading asks for first name only
+      and flags the wrap.
+
+**Handed to the integrating developers rather than solved here** — both are
+marked in `template.html` with `CHANGE #1` / `CHANGE #2` banners, since the data
+comes from Workday and this component should not fetch it itself:
+
+- [ ] **"Timothy" is hardcoded.** Must come from Workday via Liferay user
+      context, first name only, HTML-escaped. Hook marked `CHANGE #1`.
+- [ ] **Who sees it, how often?** No gating and no once-per-user persistence;
+      a reload restores every popped balloon. Hook marked `CHANGE #2`, which
+      also notes that `localStorage` alone is not durable enough and that the
+      root can start `hidden` to avoid a flash for gated-out users.
+
+**Still genuinely open:**
 - [ ] **No CTA on the card.** Still no destination URLs collected.
 - [ ] **Analytics** — no events dispatched on open, pop, or dismiss.
 - [ ] **Browser floor** beyond the 1024px width decision. Decides whether
@@ -62,12 +56,11 @@ the code, not just the content.
 
 ## 2. Known risks in the code
 
-- [ ] **`vendor/confetti.min.js` needs an integration decision.** It's a separate
-      `<script src>`, but a Liferay fragment has *one* JS field. Either upload it
-      as a fragment resource and repoint the src to `[resources:confetti.min.js]`,
-      or paste its 4.6KB above the component script in the JS field. Until that's
-      done the confetti silently no-ops — by design, but silently. Check
-      `diagnose().confettiLibLoaded` after integrating.
+- [x] ~~**`vendor/confetti.min.js` needs an integration decision.**~~ Resolved
+      2026-08-31: **inlined into `template.html`.** Zero external dependencies —
+      no npm, no CDN, no second file for Liferay to serve. `vendor/` is kept as
+      the source of truth for the paste but is no longer loaded (confirmed by
+      resource timing). `diagnose().confettiLibLoaded` still reports it.
 - [ ] **Third-party code now ships in the fragment.** ISC licensed, no runtime
       dependencies, 4.6KB — but it is someone else's code inside a bank's
       intranet, and `vendor/confetti-LICENSE.txt` must travel with it. Worth a
@@ -111,23 +104,35 @@ the code, not just the content.
 
 ## 3. Assets
 
-- [ ] **The 10 even-frame files are now unused — 988KB.** Frames 2 and 4 of every
-      colour are neither referenced nor fetched since the pop moved to 1 → 3 → 5.
-      Verified by resource timing: 15 requests, 5 each for frames 1/3/5, zero for
-      2/4. Delete them once the odd-only sequence is signed off by eye — keep them
-      until then, since restoring a frame is a one-line change but re-exporting
-      artwork is not.
+- [x] ~~**The 10 even-frame files are now unused — 988KB.**~~ Deleted
+      2026-08-31, along with the 9 superseded legacy files, `round-pin-64.png`
+      and `background.svg`. **21 files, 1,636KB freed; `Assets/` went from
+      3.9MB to 2.3MB.** All recoverable from git history if a frame is ever
+      wanted back.
 - [ ] **Asset weight has its own file now — see `LIGHTENING.md`.** Summary:
       `Assets/` is 3.9MB after the compression pass; resizing the sources would
       get it to ~1.5MB. Note the render size is no longer fixed — it now varies
       228–526px with the viewport, so the 800px sources are between 3.5× and
       1.5× oversized depending on screen. Any resize target has to cover the
       largest case, not the average.
-- [ ] **`round pin.png` is 512px but cursors cap at 128px.** `round-pin-64.png`
-      is the generated 64px version actually used; the 512px original is kept as
-      the source. Regenerate with the PowerShell/System.Drawing resize recorded
-      in the playbook if the art changes — editing the 512px file alone does
+- [ ] **`round pin.png` is 512px but cursors cap at 128px.** `round-pin-48.png`
+      is the generated 48px version actually used (reduced from 64px on
+      2026-08-31); the 512px original is kept as the source. The resize is now
+      actually recorded in the playbook's Pointer section, along with the five
+      coupled values that must move together — editing the 512px file alone does
       nothing.
+- [ ] **`round-pin-64.png` is now unused — 4.7KB.** Superseded by the 48px
+      version and referenced by nothing. Kept until the 48px pin is signed off
+      by eye, on the same reasoning as the even frames above: regenerating is a
+      one-line script run, but reverting after deleting means re-deriving the
+      size. Delete once 48px is confirmed.
+- [ ] **Pin size is retina-soft and cannot be fixed for the native cursor.**
+      A cursor PNG's pixels are treated as CSS px with no way to declare a scale
+      factor, so at `devicePixelRatio: 2` (measured on the dev machine) the 48px
+      cursor renders from a 48px source. The tracked `.bday_pin` element has no
+      such limit — pointing it at a 96px PNG held at 48 CSS px would make the
+      *visible* pin crisp while the fallback stays soft. Cheap half of the
+      untested-retina item in §5.
 - [ ] **Frames aren't registered to a common centre.** Alpha-weighted centroids drift
       across each sequence — Red 5 sits ~95px left and ~113px below Red 1 (>10% of the
       canvas). Swapping frames in place makes the balloon visibly jump, worst in Red.

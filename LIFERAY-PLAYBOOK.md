@@ -87,13 +87,36 @@ ARIA for a widget pattern arrives with the widget.
 .bday_root      position: fixed; inset: 0; z-index: 9999
                 fixed+inset so it covers the viewport wherever it's mounted,
                 rather than inheriting a host container's width
-.bday_bg        Assets/background.svg (placeholder), object-fit: cover
 .bday_overlay   linear-gradient #172733 → #457699 (85% alpha),
                 backdrop-filter: blur(16px) + -webkit- prefix
+.bday_close     32x32 dismiss button, top right, z-index 305
+
 .bday_card      Assets/card.png — the final message, centred, above the overlay
                 and behind the balloons, so popping them uncovers it. No reveal
                 logic; the layering does the work.
 ```
+
+**It sits on top of the live intranet — decided 2026-08-31.** This was the
+project's biggest open question and it is now closed. There is no background
+layer at all: the real page shows through and `.bday_overlay`'s
+`backdrop-filter` blurs it. `Assets/background.svg` was a placeholder for a
+screenshot and has been deleted. Adding an `<img>` back would cover the very
+page this is meant to blur.
+
+That makes the `position: fixed` containing-block risk sharper rather than
+softer: if a theme ancestor carries a `transform`/`filter`/`perspective`, the
+takeover boxes itself inside that ancestor and blurs only that region. Not
+fixed in code — a marked comment in the script explains the ~1-line fix, since
+reparenting a fragment's own DOM should be a deliberate call by the integrator.
+
+**Dismissal — added 2026-08-31.** A 32×32 close button, top right, plus Esc.
+`close()` hides the root and cancels pending timers rather than tearing down,
+so `open()` can bring it back without rebuilding ~45 nodes; `destroy()` is
+still the real teardown. Focus moves to the button on init and returns to the
+previously focused element on close — with one focusable control in a
+full-screen overlay, that is the whole keyboard story. Note confetti's canvas
+lives on `<body>`, outside the root, so anything mid-flight paints over a
+just-closed takeover for a moment before clearing itself.
 
 **Sizing: count and size are both derived, not configured.** The only knob is
 `balloonScale` — the balloon's size as a multiple of its grid cell. Everything
@@ -149,11 +172,36 @@ files (988KB) are now dead weight in `Assets/` — see `BACKLOG.md` §3.
 **Two pop modes**, switchable at runtime via `window.bday.setPopMode()`:
 
 - `colour` (default) — every balloon of the clicked colour.
-- `proximity` — the clicked balloon plus `popLayers` rings of neighbours,
-  measured as **Chebyshev distance in grid cells**, not pixels. 1 layer = 9
-  balloons, 2 = 25, 3 = 49, clipped at the field's edges. Cells rather than a
-  pixel radius because the field is a jittered brick grid, where a radius would
-  catch a lopsided set near the edges.
+- `proximity` — the clicked balloon plus its **nearest N still-live
+  neighbours**, where N is `POP_STEPS[config.popLevel - 1]`, currently
+  **9 / 15 / 25**.
+
+**Proximity counts balloons, not rings — changed 2026-08-31.** It was Chebyshev
+distance in grid cells, which made the levels 9 / 25 / 49. Asking for 15 is what
+broke that model: **15 has no symmetric shape on a square grid.** Rings give
+9/25/49 and diamonds give 13/21, so no radius expresses it — a shape-based rule
+cannot produce the requested step at all.
+
+Selecting a count instead is also strictly better at the field's edges, which is
+where the old rule was weakest: a ring near a corner was clipped into a lopsided
+wedge, while a count reaches further into the field to fill its quota. Measured
+after the change — a corner click returns the full 9 / 15 / 25, identical to a
+centre click.
+
+The distance is now **real pixels**, reversing the original cells-not-pixels
+call. That reasoning was sound for a ring, where a pixel radius caught lopsided
+sets near the edges. For a fixed count the jitter becomes an asset: it settles
+the ties that an integer cell distance would otherwise have to break
+arbitrarily — and an asymmetric count like 15 is precisely where an arbitrary
+tie-break would show as a blob leaning one way.
+
+Only live balloons count, so on a field that has already been clicked a few
+times "15" still means fifteen balloons you can actually see. If fewer than N
+remain it takes what is left rather than under-delivering silently.
+
+Retune by editing `POP_STEPS` in `template.html`; the preview panel reads it via
+`window.bday.popSteps` rather than hardcoding the labels, so a fourth step needs
+no change there beyond the slider's `max`.
 
 Both feed the same distance-ordered scheduler, so the wave behaves identically
 either way. Like `setPointer()`, neither is part of `setConfig()` — pop
@@ -172,14 +220,23 @@ to change what the *next* click does.
   keyboard and screen-reader users**. Fine for pure decoration; if popping ever
   does something meaningful, this needs a real control.
 
-**Confetti — confetti.js, vendored.** `vendor/confetti.min.js` is
-`@hiseb/confetti` 2.2.0 (ISC, 4.6KB minified, no runtime dependencies), **copied
-into the repo rather than loaded from a CDN** — a Liferay CSP would block the
-external script. Licence text is in `vendor/confetti-LICENSE.txt` and ISC
-requires it be retained.
+**Confetti — confetti.js, INLINED in `template.html` (changed 2026-08-31).**
+`@hiseb/confetti` 2.2.0 (ISC, 4.6KB minified, no runtime dependencies) is now
+pasted in full into its own `<script>` block above the component script, rather
+than loaded via `<script src>`. **Decided on 2026-08-31: zero external
+dependencies** — nothing to `npm install`, nothing to fetch, no second file for
+Liferay to serve, and no CSP to fall foul of. This also retires the old
+"upload it as a fragment resource or paste it in" integration decision: the
+paste is done.
 
-It's an IIFE that assigns `window.confetti`, so its `<script>` must come before
-the component script. Each balloon fires one burst on frame 3 — the shatter
+`vendor/confetti.min.js` stays in the repo as the unmodified source of truth for
+that paste, but is **not loaded at runtime** — verified by resource timing, it
+is no longer requested. The ISC licence requires the notice travel with the
+code, so it is reproduced in the comment above the inlined block as well as in
+`vendor/confetti-LICENSE.txt`.
+
+It's an IIFE that assigns `window.confetti`, so its block must stay above the
+component script. Each balloon fires one burst on frame 3 — the shatter
 frame — in its own colour, using the library's own option names
 (`count`/`size`/`velocity`/`fade`/`color`/`position`), so its docs apply as
 written.
@@ -203,12 +260,52 @@ that version is in git history at `cad8da7` and earlier.
 `pin` (`pin.svg` everywhere), `crosshair` (JS-tracked reticle plus full-viewport
 rules). Driven by `data-bday-pointer` on the root.
 
-The pushpin is `Assets/round-pin-64.png`, a 64px downscale of the 512px
-`round pin.png` **generated because Chrome ignores cursor images over 128px** —
-pointing the cursor at the original would silently fall back to `pointer` with
-no error. Hotspot `0 63` is the needle tip, measured from the artwork's alpha
-rather than guessed. Regenerate it with the same PowerShell/System.Drawing
-resize if the source art changes; the source stays in `Assets/` for that. Deliberately *not* part of `setConfig()` —
+The pushpin is `Assets/round-pin-48.png`, a 48px downscale of the 512px
+`round pin.png` — **reduced from 64px on 2026-08-31.** It is generated rather
+than referenced directly because **a native cursor cannot be scaled by CSS**:
+its size *is* the file's pixel size. Chrome also ignores cursor images over
+128px, so pointing at the 512px original would silently fall back to `pointer`
+with no error. Hotspot `0 47` is the needle tip, measured from the artwork's
+alpha rather than guessed — the tip reaches the bottom-left corner, so it
+tracks size as `0, size-1` (confirmed: 512px source tips at 5,505; the 64px
+render tipped at 0,63; the 48px at 0,47).
+
+**"default" mode runs two pin mechanisms and the size lives in both.** The
+tracked `.bday_pin` element is what you normally see — a real DOM node
+following the pointer, needed because a native cursor cannot animate (the
+browser hands the OS a static bitmap). The native `cursor: url(...)` is the
+*fallback* when `:has()` or the JS tracking fails. They must stay matched or
+the fallback jumps size at the worst moment. Changing the size means moving
+**five** coupled values together, none of which assert against each other:
+
+| Where | At 48px |
+| --- | --- |
+| `cursor:` hotspot, `.bday_balloon` rule | `0 47` (= `0, size-1`) |
+| `.bday_pin` width/height | `48px` |
+| `PIN_HOTSPOT_Y` in the script | `47` |
+| `.bday_pin-art` press offset | `translate(-3px, 3px)` (= `4px × size/64`) |
+| `Assets/round-pin-48.png` | regenerated; filename encodes the size |
+
+Regenerate with System.Drawing — this is the resize the backlog refers to,
+recorded here rather than left as a reference to something that was never
+written down:
+
+```powershell
+Add-Type -AssemblyName System.Drawing
+$in  = [System.Drawing.Bitmap]::FromFile('Assets\round pin.png')
+$out = New-Object System.Drawing.Bitmap(48, 48, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+$g = [System.Drawing.Graphics]::FromImage($out)
+$g.CompositingMode  = [System.Drawing.Drawing2D.CompositingMode]::SourceCopy
+$g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+$g.PixelOffsetMode   = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
+$g.DrawImage($in, (New-Object System.Drawing.Rectangle(0, 0, 48, 48)))
+$g.Dispose(); $out.Save('Assets\round-pin-48.png', [System.Drawing.Imaging.ImageFormat]::Png)
+```
+
+`SourceCopy` matters — without it the resize composites against the empty
+destination and premultiplies the alpha, which darkens the soft edge. After
+regenerating, re-measure the tip from the alpha rather than assuming it scaled.
+The 512px source stays in `Assets/` for this. Deliberately *not* part of `setConfig()` —
 that rebuilds the field and would wipe the popped set just to swap a cursor.
 The crosshair listeners stay attached in all modes and early-return, so the pin
 and default modes run no per-move JS at all. Which one ships is still open: the
@@ -225,8 +322,8 @@ old `Balloon count` and `Balloon size` sliders are gone — leaving them would
 have been silently inert once those keys left `CONFIG`.
 
 Current `CONFIG`: `balloonScale 1.78`, 12° tilt, 0.17 scatter, 30ms frames,
-2px/ms wave, confetti 40 at size 1 / velocity 200, pop mode `colour`, pointer
-`default`.
+2px/ms wave, confetti 40 at size 1 / velocity 200, pop mode `colour`,
+`popLevel 1` (9 balloons), pointer `default`.
 
 `balloonScale 1.78`, `MAX_BALLOON_PX 360` and `HARD_MAX_BALLOONS 110` were
 **accepted on 2026-08-21** on the strength of the measurements above. Worth
@@ -237,6 +334,12 @@ looks wrong, `balloonScale` is the first dial, `MAX_BALLOON_PX` the second.
 Note this **invalidates any config JSON saved before 2026-08-21** — `maxBalloons`
 and `balloonSize` no longer exist and are silently ignored by `setConfig()`. Use
 "Copy config" to get the current shape.
+
+**`popLayers` was retired on 2026-08-31**, replaced by `popLevel` for the same
+reason: it named rings, and proximity no longer pops rings. A saved config
+carrying `popLayers` is silently ignored, so a field that was tuned to "2
+layers" comes back at `popLevel 1` — re-pick the level rather than assuming it
+carried over.
 
 The panel is **preview-only** — per §1, dev UI does not ship in the fragment.
 What does ship is the small `config` / `setConfig` / `reset` / `setPopMode` /

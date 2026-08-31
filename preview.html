@@ -140,10 +140,12 @@
     { key: "maxTilt",     label: "Tilt",          min: 0,   max: 30,  step: 1,    unit: "°" },
     { key: "frameMs",     label: "Frame gap",     min: 30,  max: 400, step: 10,   unit: "ms" },
     { key: "wavePxPerMs", label: "Wave speed",    min: 0.2, max: 6,   step: 0.1,  unit: "px/ms" },
-    { key: "popLayers",   label: "Layers",        min: 1,   max: 3,   step: 1,
+    { key: "popLevel",    label: "Pop size",      min: 1,   max: 3,   step: 1,
+      // Reads the counts from the component rather than recomputing them, so
+      // retuning POP_STEPS in template.html can't leave this label lying.
       format: function (v) {
-        var n = (2 * v + 1) * (2 * v + 1);
-        return v + " (" + n + " balloons)";
+        var steps = (window.bday && window.bday.popSteps) || [];
+        return (steps[v - 1] || "?") + " balloons";
       } },
     { group: "Confetti" },
     { key: "confettiCount",    label: "Count",    min: 0,   max: 200, step: 5 },
@@ -204,10 +206,10 @@
     body.appendChild(seg);
   }
 
-  // The Layers slider only means anything in proximity mode. Disabling it is
+  // The Pop size slider only means anything in proximity mode. Disabling it is
   // clearer than leaving a live control that silently does nothing.
   function syncLayersEnabled() {
-    var s = document.getElementById("tune_popLayers");
+    var s = document.getElementById("tune_popLevel");
     if (!s) return;
     var on = window.bday.config.popMode === "proximity";
     s.disabled = !on;
@@ -315,12 +317,12 @@
       }
       show();
 
-      // Confetti values are read at burst time and popLayers at click time, so
+      // Confetti values are read at burst time and popLevel at click time, so
       // neither needs a rebuild — and rebuilding would wipe the field you're
       // looking at. Confetti fires a sample instead, throttled so dragging
       // doesn't emit one per input event.
       var isConfetti = c.key.indexOf("confetti") === 0;
-      var isLive = isConfetti || c.key === "popLayers";
+      var isLive = isConfetti || c.key === "popLevel";
 
       input.addEventListener("input", function () {
         show();

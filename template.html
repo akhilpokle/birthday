@@ -12,14 +12,11 @@
    land on our background and knock it out of alignment — caught in preview.html. */
 .bday_root img { display: block; border: 0; margin: 0; }
 
-.bday_bg {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
+/* There is deliberately no background layer. This takeover sits ON TOP of the
+   live intranet (decided 2026-08-31), so the real page shows through and
+   .bday_overlay's backdrop-filter blurs it. The old Assets/background.svg was a
+   placeholder standing in for a screenshot and has been deleted — do not add an
+   <img> back in, or it will cover the very page this is meant to blur. */
 .bday_overlay {
   position: absolute;
   inset: 0;
@@ -28,6 +25,10 @@
     rgba(23, 39, 51, 0.85) 0%,
     rgba(69, 118, 153, 0.85) 100%
   );
+  /* This is what makes the takeover work now: it blurs the real intranet
+     behind it. 85% alpha on the gradient above sits over that blur. If the
+     host page ever ends up unblurred, check for an ancestor that creates a
+     containing block — see the reparenting note in the script. */
   -webkit-backdrop-filter: blur(16px);
   backdrop-filter: blur(16px);
 }
@@ -87,6 +88,50 @@
    setting `p { margin: 0 0 18px }`. Without this the copy inherits it. */
 .bday_root h2, .bday_root p { margin: 0; }
 
+/* ── close button ─────────────────────────────────────────────────────
+   32x32 per spec. Above the balloons (inline z-index 1..Z_LEVELS = 100) and
+   the crosshair layer (300), but below the tracked pin (310) so the cursor
+   still paints on top of it, which is where a cursor belongs.
+
+   A real <button>, not a styled div: it must be reachable by Tab and fire on
+   Enter/Space without any of that being re-implemented. */
+.bday_close {
+  position: absolute;
+  top: 24px;
+  right: 24px;
+  z-index: 305;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  /* Host defence: the intranet styles bare `button`. Everything a theme could
+     reach in and set is reset here rather than assumed. */
+  background: rgba(23, 39, 51, 0.35);
+  border: 0;
+  border-radius: 50%;
+  font: inherit;
+  line-height: 0;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+  transition: background-color 120ms ease-out;
+}
+.bday_close:hover { background: rgba(23, 39, 51, 0.6); }
+.bday_close:focus-visible { outline: 2px solid #ffffff; outline-offset: 2px; }
+/* The icon is stroked, so it scales with the button without re-exporting art. */
+.bday_close svg { display: block; width: 16px; height: 16px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .bday_close { transition-duration: 0ms; }
+}
+
+/* Set by close(). Explicit rather than relying on the UA sheet's [hidden],
+   which a host theme's `display` rule can outrank. */
+.bday_root[hidden] { display: none; }
+
 /* ── pointer modes ────────────────────────────────────────────────────
    Driven by data-bday-pointer on the root, set via window.bday.setPointer().
    Balloons use cursor:inherit, so setting it here reaches them too.
@@ -99,13 +144,16 @@
 .bday_root[data-bday-pointer="pin"] { cursor: url('Assets/pin.svg') 3 3, auto; }
 /* "default" leaves the arrow on the backdrop and swaps to the pushpin over a
    balloon — the thing you'd actually pop it with.
-   round-pin-64.png is a 64px downscale of Assets/round pin.png, generated
-   because Chrome ignores cursor images larger than 128px and the source is
-   512px. Hotspot 0 63 is the needle tip, measured from the artwork's alpha.
+   round-pin-48.png is a 48px downscale of Assets/round pin.png, generated
+   because a native cursor cannot be scaled by CSS — its size IS the file's
+   pixel size — and because Chrome ignores cursor images larger than 128px, so
+   pointing at the 512px source would silently fall back to `pointer`.
+   Hotspot 0 47 is the needle tip, measured from the artwork's alpha (the tip
+   reaches the bottom-left corner, so it tracks size as 0, size-1).
    `pointer` is the fallback if the image is rejected or fails to load. */
 .bday_root[data-bday-pointer="default"] { cursor: default; }
 .bday_root[data-bday-pointer="default"] .bday_balloon {
-  cursor: url('Assets/round-pin-64.png') 0 63, pointer;
+  cursor: url('Assets/round-pin-48.png') 0 47, pointer;
 }
 
 /* The system cursor is hidden only once a replacement is actually tracking
@@ -125,8 +173,8 @@
 .bday_pin {
   position: absolute;
   left: 0; top: 0;
-  width: 64px;    /* must match round-pin-64.png and PIN_HOTSPOT_Y */
-  height: 64px;
+  width: 48px;    /* must match round-pin-48.png and PIN_HOTSPOT_Y */
+  height: 48px;
   pointer-events: none;
   /* Above the crosshair layer (300) and well above the balloons' inline
      z-index (1..Z_LEVELS). Without this it inherits `auto` and paints behind
@@ -149,8 +197,10 @@
 /* Press driven entirely by :has() — no pointerdown/up/cancel handlers, and no
    state to unwind in destroy(). Down-left, along the direction the tip already
    points, so it reads as pushing the pin in rather than sliding it.
+   Scales with the pin: 3px is the 64px art's 4px offset at 48px. A fixed offset
+   would read as a twitch on a smaller pin and a lurch on a larger one.
    If :has() is unsupported the pin simply doesn't animate; it still tracks. */
-.bday_root:has(.bday_balloon:active) .bday_pin-art { transform: translate(-4px, 4px); }
+.bday_root:has(.bday_balloon:active) .bday_pin-art { transform: translate(-3px, 3px); }
 
 @media (prefers-reduced-motion: reduce) {
   .bday_pin-art { transition-duration: 0ms; }
@@ -236,11 +286,19 @@
 </style>
 
 <div class="bday_root" id="bday_root">
-  <!-- Placeholder dashboard, not a real screenshot — see Assets/background.svg.
-       The real intranet capture is kept out of the repo; whether this layer
-       should exist at all is an open question in BACKLOG.md §1. -->
-  <img class="bday_bg" src="Assets/background.svg" alt="" aria-hidden="true" />
+  <!-- No background <img> by design — the live intranet behind this IS the
+       background, blurred by .bday_overlay's backdrop-filter. -->
   <div class="bday_overlay"></div>
+
+  <!-- Dismiss. aria-label rather than visible text because the icon is the
+       whole control; without it a screen reader announces an unnamed button.
+       The <svg> is aria-hidden so it isn't announced separately. -->
+  <button class="bday_close" id="bday_close" type="button" aria-label="Close">
+    <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" focusable="false">
+      <path d="M2.5 2.5 L13.5 13.5 M13.5 2.5 L2.5 13.5"
+            stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+    </svg>
+  </button>
   <!-- The final message, revealed as the balloons in front of it are popped.
        The artwork is decorative; the message itself is live text so it stays
        readable, translatable and screen-reader accessible. -->
@@ -248,8 +306,27 @@
     <img class="bday_card-art" src="Assets/card.png" alt="" aria-hidden="true" />
     <div class="bday_card-body">
       <!-- h2 not h1: this is a fragment inside a host page that has its own h1.
-           PLACEHOLDER NAME — "Timothy" must come from Liferay user context. -->
+
+           ╔═══════════════════════════════════════════════════════════════╗
+           ║ DEVELOPERS — CHANGE #1 OF 2: THE NAME                         ║
+           ║                                                               ║
+           ║ "Timothy" below is a PLACEHOLDER. The employee's real name    ║
+           ║ arrives from Workday. Replace just that word with whatever    ║
+           ║ your Liferay/Workday integration exposes, e.g.                ║
+           ║                                                               ║
+           ║   <h2 class="bday_card-title">Happy birthday ${firstName}!</h2>║
+           ║                                                               ║
+           ║ Use the FIRST name only — the layout was measured for one     ║
+           ║ short word. A long full name wraps this heading onto a second ║
+           ║ line, which is handled (the copy below simply moves down) but ║
+           ║ leaves very little clearance above the printed balloons.      ║
+           ║                                                               ║
+           ║ ESCAPE IT. This is interpolated into HTML, so a name          ║
+           ║ containing & or < must be escaped or it will break the card.  ║
+           ╚═══════════════════════════════════════════════════════════════╝ -->
       <h2 class="bday_card-title">Happy birthday Timothy!</h2>
+      <!-- "this month" is also date-dependent — check it still reads correctly
+           if this is ever shown outside the employee's birthday month. -->
       <p class="bday_card-text">Sending you best wishes for your special day and the years ahead. Don't forget to take your birthday leave this month!</p>
     </div>
   </div>
@@ -267,24 +344,87 @@
   <!-- Tracked pin, shown over balloons in "default" mode. Lives outside
        .bday_pointer because that layer is owned by the crosshair. -->
   <div class="bday_pin" id="bday_pin" aria-hidden="true" hidden>
-    <img class="bday_pin-art" src="Assets/round-pin-64.png" alt="" />
+    <img class="bday_pin-art" src="Assets/round-pin-48.png" alt="" />
   </div>
 </div>
 
-<!-- confetti.js (@hiseb/confetti 2.2.0, ISC) — vendored, NOT loaded from a CDN.
-     It ships with the project because a Liferay CSP would block an external
-     script. It is an IIFE that assigns window.confetti, so it must load before
-     the component script below.
+<!-- ══════════════════════════════════════════════════════════════════════
+     confetti.js — INLINED ON PURPOSE. Do not turn this back into a <script src>.
 
-     LIFERAY: this needs one of two things at integration time —
-       (a) upload vendor/confetti.min.js as a fragment resource and repoint this
-           src to [resources:confetti.min.js], or
-       (b) paste its contents at the top of the fragment's JavaScript field,
-           above the component script.
-     Licence text is in vendor/confetti-LICENSE.txt and must be retained. -->
-<script src="vendor/confetti.min.js"></script>
+     This is @hiseb/confetti 2.2.0, pasted in full below so the takeover has
+     ZERO external dependencies: nothing to npm install, nothing to fetch, no
+     build step, no second file for Liferay to serve. Copy this whole block into
+     the fragment's JavaScript field above the component script and it works.
+     (A Liferay CSP would in any case block loading it from a CDN.)
+
+     It is an IIFE that assigns window.confetti, so it MUST stay above the
+     component script that follows.
+
+     LICENCE — ISC, Copyright (c) 2025 Sebastian Wetzel. The licence requires
+     this notice travel with the code, which is why it is reproduced here and
+     not only in vendor/confetti-LICENSE.txt:
+
+       Permission to use, copy, modify, and/or distribute this software for any
+       purpose with or without fee is hereby granted, provided that the above
+       copyright notice and this permission notice appear in all copies.
+
+       THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+       WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+       MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+       ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+       WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+       ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+       OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
+     vendor/confetti.min.js is kept in the repo as the unmodified source of
+     truth for this paste. It is NOT loaded at runtime any more.
+     ══════════════════════════════════════════════════════════════════════ -->
+<script>
+"use strict";(()=>{var b={count:75,size:1,velocity:200,fade:!1},h=class{static init(t){return{position:{x:window.innerWidth/2,y:window.innerHeight/3},...b,...t}}};var e=class{static range(t,i){return Math.random()*(i-t)+t}};var s=class n{x;y;constructor(t=0,i=0){this.x=t,this.y=i}copy(){return new n(this.x,this.y)}magnitude(){return Math.hypot(this.x,this.y)}normalize(){let t=this.magnitude();if(t===0)return this.x=0,this.y=0,this;let i=1/t;return this.x*=i,this.y*=i,this}scale(t){return this.x*=t,this.y*=t,this}};var c=class{config;position;size;velocity;rotation;rotationSpeed;color;opacity;fadeRate;constructor(t){this.config=t,this.position=this.initPosition(),this.size=this.initSize(),this.velocity=this.initVelocity(),this.rotation=e.range(0,360),this.rotationSpeed=e.range(-250,250),this.color=this.initColor(),this.opacity=100,this.fadeRate=100/e.range(.5,2.5)}initPosition(){let t=this.config.position.x,i=this.config.position.y;return new s(t,i)}initSize(){let t=e.range(2,10)*this.config.size,i=e.range(2,4)*this.config.size;return new s(t,i)}initVelocity(){let t=e.range(-.5,.5),i=e.range(-.75,.25),r=new s(t,i).normalize();return r.x*=e.range(0,this.config.velocity*4),r.y*=e.range(0,this.config.velocity*4),r}initColor(){if(this.config.color&&this.config.color.length>0){let t=Math.floor(e.range(0,this.config.color.length));return this.config.color[t]}else return e.range(0,360)}update(t,i){this.velocity.x+=e.range(-350,350)*t,this.velocity.y+=75*this.size.y*t,this.velocity.scale(i),this.position.x+=this.velocity.x*t,this.position.y+=this.velocity.y*t,this.rotation+=this.rotationSpeed*t,this.config.fade&&(this.opacity-=this.fadeRate*t,this.opacity<0&&(this.opacity=0))}draw(t){t.drawRect(this.position,this.size,this.rotation,this.color,this.opacity)}cull(t){let i=Math.max(this.size.x,this.size.y)*2;return this.position.y>t.height+i||this.opacity<=0}};var d=class{canvas;context;dpr;rafId;boundResize;constructor(){let t=document.createElement("canvas"),i=t.getContext("2d");if(!i)throw new Error("Unable to create 2d context");this.canvas=t,this.context=i,this.dpr=Math.max(1,window.devicePixelRatio||1),this.rafId=0,this.boundResize=this.resize.bind(this),this.resize(),window.addEventListener("resize",this.boundResize),t.style.position="fixed",t.style.top="0",t.style.left="0",t.style.width="100%",t.style.height="100%",t.style.margin="0",t.style.padding="0",t.style.zIndex="999999999",t.style.pointerEvents="none",document.body.appendChild(t),this.context.imageSmoothingEnabled=!0}resize(){this.rafId&&cancelAnimationFrame(this.rafId),this.rafId=requestAnimationFrame(()=>{let{innerWidth:t,innerHeight:i}=window;this.canvas.width=Math.round(t*this.dpr),this.canvas.height=Math.round(i*this.dpr),this.canvas.style.width=`${t}px`,this.canvas.style.height=`${i}px`,this.context.setTransform(this.dpr,0,0,this.dpr,0,0),this.context.imageSmoothingEnabled=!0,this.rafId=0})}get width(){return this.canvas.width/this.dpr}get height(){return this.canvas.height/this.dpr}clear(){this.context.clearRect(0,0,this.canvas.width,this.canvas.height)}drawRect(t,i,r,a,o){let f=r*Math.PI/180,u=Math.cos(f),m=Math.sin(f),g=i.x*this.dpr,v=i.y*this.dpr,y=t.x*this.dpr,x=t.y*this.dpr;this.context.setTransform(u,m,-m,u,y,x),this.context.beginPath(),this.context.rect(-g/2,-v/2,g,v),this.context.fillStyle=typeof a=="string"?`oklch(from ${a} l c h / ${o}%)`:`oklch(0.85 0.25 ${a}deg / ${o}%)`,this.context.fill(),this.context.setTransform(this.dpr,0,0,this.dpr,0,0)}cleanup(){window.removeEventListener("resize",this.boundResize),this.rafId&&cancelAnimationFrame(this.rafId),this.canvas.remove()}};var p=class n{renderer;particles;lastTime;rafId;boundUpdate;static sharedEngine=null;constructor(){this.renderer=new d,this.particles=[],this.boundUpdate=this.update.bind(this),this.lastTime=0,this.rafId=window.requestAnimationFrame(this.boundUpdate)}update(t){let i=this.lastTime?Math.min((t-this.lastTime)/1e3,.064):0;if(this.lastTime=t,this.particles.length===0){this.cleanup();return}this.renderer.clear();let r=0,a=Math.pow(.98,i*60);for(let o=0;o<this.particles.length;o++)this.particles[o].update(i,a),this.particles[o].cull(this.renderer)||(this.particles[o].draw(this.renderer),this.particles[r++]=this.particles[o]);this.particles.length=r,this.rafId=window.requestAnimationFrame(this.boundUpdate)}cleanup(){this.rafId&&window.cancelAnimationFrame(this.rafId),this.renderer.cleanup(),n.sharedEngine=null}trigger(t){for(let i=0;i<t.count;i++)this.particles.push(new c(t))}static acquire(){return n.sharedEngine||(n.sharedEngine=new n),n.sharedEngine}};function l(n={}){let t=h.init(n);p.acquire().trigger(t)}window.confetti=l;})();
+</script>
 
 <script>
+/* ══════════════════════════════════════════════════════════════════════════
+   DEVELOPERS — READ THIS FIRST.
+
+   This file is the whole component: styles, markup and script in one place.
+   It is designed to be pasted into a Liferay fragment's three fields (the
+   <style> block, the markup, and the two <script> blocks in that order).
+
+   There are exactly TWO changes you must make, and one you must not.
+
+   ── CHANGE #1: the employee's name ──────────────────────────────────────
+   Search this file for "CHANGE #1". "Timothy" is hardcoded and must come
+   from Workday. Every employee gets Timothy's card until you do this.
+
+   ── CHANGE #2: who sees it, and how often ───────────────────────────────
+   Search this file for "CHANGE #2". Nothing gates this today: it shows to
+   everyone on every page load, and refreshing brings back every popped
+   balloon. You need to decide and implement:
+     • whose birthday it is (from Workday), and
+     • showing it once per person per year rather than on every visit.
+   The hook for it is marked in the script below. window.bday.open() and
+   window.bday.close() are there so you can drive it from your own gating
+   rather than editing this file's internals.
+
+   ── DO NOT: change the asset paths yet ──────────────────────────────────
+   Images load from a local "Assets/" folder (Assets/Blue 1.png and friends).
+   That is deliberate for now — keep it working locally first. When you move
+   to Liferay proper, upload the Assets folder as fragment resources and
+   repoint the two places paths are built:
+     • srcFor() in the script below — the balloon frames
+     • the src attributes in the markup above — the card and the pin
+     • the cursor: url(...) rules in the styles above — the pin cursor
+   ...to Liferay's [resources:filename] form. Note the balloon filenames
+   contain SPACES ("Blue 1.png"), which srcFor() URL-encodes; renaming them
+   to blue-1.png would make the Liferay paths simpler.
+
+   ── Already handled, don't redo ─────────────────────────────────────────
+   • Confetti is INLINED above. No npm, no CDN, no second file to serve.
+   • Everything is prefixed bday_ so it cannot collide with the theme.
+   • There is no background image: this sits ON TOP of the live intranet and
+     blurs it. Don't add one back.
+   ══════════════════════════════════════════════════════════════════════════ */
 (function () {
   "use strict";
 
@@ -333,11 +473,11 @@
     confettiFade:     0,    // 0 = fall off screen, 1 = fade out in place
 
     // What a click takes out. "colour" pops every balloon of the clicked
-    // colour; "proximity" pops the clicked balloon plus popLayers rings of
-    // neighbours around it. Read at click time — no rebuild needed, so set
-    // these via setPopMode()/config rather than setConfig().
-    popMode:   "colour",
-    popLayers: 1,          // rings: 1 => 9 balloons, 2 => 25, 3 => 49
+    // colour; "proximity" pops the clicked balloon plus its nearest neighbours,
+    // up to a fixed count. Read at click time — no rebuild needed, so set these
+    // via setPopMode()/config rather than setConfig().
+    popMode:  "colour",
+    popLevel: 1,           // index into POP_STEPS below: 1 => 9, 2 => 15, 3 => 25
 
     // "pin" | "crosshair" | "default" — change via setPointer(), not setConfig()
     pointer: "default"
@@ -549,7 +689,7 @@
   // Only in "default" mode, and only while the pointer is over a balloon.
   // The pin's tip sits at (0, PIN_HOTSPOT_Y) inside the image, so the wrapper
   // is placed that far above the pointer to put the tip on it.
-  var PIN_HOTSPOT_Y = 63;   // tip's y inside the 64px art, from its alpha
+  var PIN_HOTSPOT_Y = 47;   // tip's y inside the 48px art, from its alpha
 
   var pinEl = document.getElementById("bday_pin");
   var pinLive = false;
@@ -625,6 +765,22 @@
 
   var POP_MODES = ["colour", "proximity"];
 
+  // How many balloons a proximity click takes out, by level. Counts rather than
+  // ring radii because 15 is not expressible as a ring (9/25/49) or a diamond
+  // (13/21) — see targetsFor(). Edit this list to retune the levels; the preview
+  // panel reads it through window.bday.popSteps rather than hardcoding labels,
+  // so adding a fourth step needs no change there beyond the slider's max.
+  var POP_STEPS = [9, 15, 25];
+
+  // Clamps popLevel to a real step, so a stale config or a hand-typed value
+  // can't index off the end and return undefined into slice().
+  function popCount() {
+    var i = Math.round(CONFIG.popLevel) - 1;
+    if (!(i >= 0)) i = 0;                                   // also catches NaN
+    if (i > POP_STEPS.length - 1) i = POP_STEPS.length - 1;
+    return POP_STEPS[i];
+  }
+
   // Applies immediately. Unlike setConfig() this does not rebuild the field —
   // pop behaviour is read at click time, and rebuilding would clear the popped
   // set just to change what the next click does.
@@ -692,64 +848,63 @@
     }, LAST_FRAME * CONFIG.frameMs);
   }
 
-  // Pops every balloon sharing the clicked one's colour, scheduled by distance
-  // so the pop travels outward as a wave. Delay is proportional to distance
-  // rather than to rank, so balloons at a similar radius go together and the
-  // chain reads as one expanding front.
-  function cellOf(el) {
-    var s = (el.getAttribute("data-bday-cell") || "0,0").split(",");
-    return { col: +s[0], row: +s[1] };
-  }
-
-  // Which balloons a click takes out. Both modes feed the same distance-ordered
-  // scheduler below, so either way the pop still travels outward as a wave.
+  // Which balloons a click takes out, already measured and ordered by distance
+  // from the click. One pass over the field: every getBoundingClientRect() in a
+  // pop happens here, so popWave() below writes without ever re-reading layout.
+  //
+  // Returns [{el, dist}], nearest first. Both pop modes come through here, so
+  // either way the pop still travels outward as one expanding front.
   function targetsFor(origin) {
-    if (CONFIG.popMode === "proximity") {
-      // Chebyshev distance in grid cells, so "1 layer" is the ring of 8 around
-      // the clicked balloon (9 total), "2 layers" the 24 around it (25 total).
-      // Measured in cells rather than pixels because the field is a jittered
-      // brick grid — pixel radii would catch a lopsided set near the edges.
-      var oc = cellOf(origin);
-      var reach = CONFIG.popLayers;
-      var all = layer.querySelectorAll(".bday_balloon");
-      var hit = [];
-      for (var i = 0; i < all.length; i++) {
-        var c = cellOf(all[i]);
-        if (Math.max(Math.abs(c.col - oc.col), Math.abs(c.row - oc.row)) <= reach) {
-          hit.push(all[i]);
-        }
-      }
-      return hit;
-    }
-    return layer.querySelectorAll(
-      '.bday_balloon[data-bday-color="' + origin.getAttribute("data-bday-color") + '"]');
-  }
-
-  function popWave(origin) {
     var o = origin.getBoundingClientRect();
     var ox = o.left + o.width / 2;
     var oy = o.top + o.height / 2;
+    var wantColor = origin.getAttribute("data-bday-color");
+    var proximity = CONFIG.popMode === "proximity";
 
-    var all = targetsFor(origin);
-
-    // Two passes on purpose. data-bday-popping drives a CSS rule, so writing it
-    // invalidates style — interleaving that with getBoundingClientRect() forced
-    // a fresh layout on every iteration. Read everything, then write everything.
-    var targets = [];
-    var speed = CONFIG.wavePxPerMs;
-    var instant = reduceMq.matches;
-
+    var all = layer.querySelectorAll(".bday_balloon");
+    var live = [];
     for (var i = 0; i < all.length; i++) {
       var el = all[i];
+      // Already on its way out, or already gone. Skipping these is what makes
+      // the proximity count mean "15 balloons you can still see" on a field
+      // that has been clicked a few times already.
       if (el.getAttribute("data-bday-popping") === "1") continue;
+      if (el.getAttribute("data-bday-gone") === "1") continue;
+      if (!proximity && el.getAttribute("data-bday-color") !== wantColor) continue;
       var r = el.getBoundingClientRect();
+      // A display:none balloon measures 0x0; without this it would look like a
+      // balloon sitting at the viewport's top-left and win on distance.
+      if (!(r.width > 0)) continue;
       var dx = r.left + r.width / 2 - ox;
       var dy = r.top + r.height / 2 - oy;
-      targets.push({
-        el: el,
-        delay: instant ? 0 : Math.sqrt(dx * dx + dy * dy) / speed
-      });
+      live.push({ el: el, dist: Math.sqrt(dx * dx + dy * dy) });
     }
+
+    if (!proximity) return live;
+
+    // Nearest N, not a ring. The counts the design wants — 9, 15, 25 — are not
+    // all square numbers, and 15 has no symmetric shape on a grid at all: rings
+    // give 9/25/49 and diamonds give 13/21, so a shape-based rule simply cannot
+    // express it. Picking a count instead also behaves better at the field's
+    // edges, where a ring gets clipped into a lopsided wedge while a count just
+    // reaches further in to fill its quota.
+    //
+    // Distance is real pixels rather than grid cells. Cells were the right call
+    // when this was a ring — a pixel radius caught lopsided sets near the edges
+    // — but for a fixed count the jitter is an asset: it decides the ties that
+    // an integer cell distance would otherwise have to break arbitrarily, which
+    // is exactly where an asymmetric count like 15 would show as a blob.
+    live.sort(function (a, b) { return a.dist - b.dist; });
+    return live.slice(0, popCount());
+  }
+
+  function popWave(origin) {
+    // All reads happened in targetsFor(). data-bday-popping drives a CSS rule,
+    // so writing it invalidates style — interleaving that with a rect read
+    // forced a fresh layout on every iteration.
+    var targets = targetsFor(origin);
+    var speed = CONFIG.wavePxPerMs;
+    var instant = reduceMq.matches;
 
     for (var j = 0; j < targets.length; j++) {
       var t = targets[j];
@@ -757,7 +912,7 @@
       popped[t.el.getAttribute("data-bday-cell")] = true;
       (function (target, delay) {
         later(function () { popOne(target); }, delay);
-      })(t.el, t.delay);
+      })(t.el, instant ? 0 : t.dist / speed);
     }
   }
 
@@ -765,6 +920,47 @@
     var img = e.target;
     if (!img || !img.classList || !img.classList.contains("bday_balloon")) return;
     popWave(img);
+  }
+
+  // ── dismissal ─────────────────────────────────────────────────────────
+  // Hides rather than destroys: the host may want to reopen it, and tearing
+  // down would mean rebuilding ~45 nodes to do so. destroy() is still the real
+  // teardown. Timers are cancelled either way, or the tail of a wave keeps
+  // firing against a takeover nobody can see.
+  //
+  // NOTE: confetti.js appends its canvas to <body>, outside our root, so
+  // anything still in flight paints on over the closed takeover for a moment.
+  // Closing mid-wave is the only way to see it and it clears itself.
+  var closeBtn = document.getElementById("bday_close");
+  var lastFocus = null;
+
+  function closeTakeover() {
+    if (root.hidden) return;
+    clearTimers();
+    showPin(false);
+    root.hidden = true;
+    // Hand focus back to wherever it was, or the user is left on a detached
+    // button with no idea where they are in the page.
+    if (lastFocus && lastFocus.focus) { try { lastFocus.focus(); } catch (err) {} }
+  }
+
+  function openTakeover() {
+    if (!root.hidden) return;
+    root.hidden = false;
+    focusClose();
+  }
+
+  // A full-screen overlay that traps nothing is a keyboard dead end, so focus
+  // moves to the one control that gets you out. Guarded: if the fragment is
+  // mounted hidden this would scroll a hidden element into view.
+  function focusClose() {
+    if (root.hidden || !closeBtn) return;
+    lastFocus = document.activeElement;
+    try { closeBtn.focus({ preventScroll: true }); } catch (err) {}
+  }
+
+  function onKeydown(e) {
+    if (e.key === "Escape" || e.key === "Esc") closeTakeover();
   }
 
   function fill() {
@@ -901,8 +1097,67 @@
   layer.addEventListener("click", onClick);
   root.addEventListener("pointermove", onPointerMove);
   root.addEventListener("pointerout", onPointerOut);
+  if (closeBtn) closeBtn.addEventListener("click", closeTakeover);
+  // On document, not root: once focus has left the takeover Esc must still work.
+  document.addEventListener("keydown", onKeydown);
   setPointer(CONFIG.pointer);
   preloadFrames();
+  focusClose();
+
+  /* ════════════════════════════════════════════════════════════════════════
+     DEVELOPERS — CHANGE #2 OF 2: GATING. THIS IS THE HOOK.
+
+     Right now the takeover simply appears, for everyone, on every page load.
+     Refreshing the page also brings back every balloon the user popped.
+     That is intentional for the prototype and is NOT acceptable in production.
+
+     Add your logic here. You need two things, both of which come from data
+     this component does not have and should not fetch itself:
+
+       1. IS IT THIS PERSON'S BIRTHDAY?  From Workday, via Liferay user
+          context. If not, close it immediately:
+
+              if (!isBirthdayToday) { window.bday.close(); }
+
+       2. HAVE THEY ALREADY SEEN IT THIS YEAR?  Show it once per person per
+          year, not on every visit. Persist that somewhere durable — a Liferay
+          user preference / expando, or your own service. localStorage alone
+          is not enough: it is per-browser, so the user sees it again on a
+          different machine, and it is wiped by a profile reset.
+
+              if (alreadySeenThisYear) { window.bday.close(); }
+              else { markSeen(); }
+
+     Prefer calling window.bday.close() / window.bday.open() over editing this
+     file's internals — they are the supported way in and out, and close()
+     cancels the animation timers for you.
+
+     Note the takeover renders BEFORE this runs, so a gated-out user may see a
+     single frame of balloons. If that matters, start the root hidden in the
+     markup (add the `hidden` attribute to .bday_root) and call
+     window.bday.open() once you have decided they should see it.
+     ════════════════════════════════════════════════════════════════════════ */
+
+  /* ════════════════════════════════════════════════════════════════════════
+     KNOWN RISK — TEST THIS ON THE REAL THEME BEFORE ANYTHING ELSE.
+
+     .bday_root is `position: fixed; inset: 0`, which normally means "cover the
+     browser window". But if ANY ancestor element has a `transform`, `filter`
+     or `perspective` on it, `fixed` silently switches to covering that
+     ancestor instead of the window. Intranet themes very commonly have one.
+
+     Symptom: the takeover appears boxed inside part of the page instead of
+     over all of it, and the blur only covers that box.
+
+     Fix, if it happens: move the root to be a direct child of <body> on init,
+     which puts it outside any such ancestor. Roughly:
+
+         if (root.parentNode !== document.body) document.body.appendChild(root);
+
+     It is left out here because it is unnecessary if the theme is clean, and
+     moving a fragment's own DOM is the kind of thing that should be a
+     deliberate decision rather than a surprise. It is ~1 line if you need it.
+     ════════════════════════════════════════════════════════════════════════ */
 
   window.bday = {
     root: root,
@@ -920,10 +1175,13 @@
       return CONFIG;
     },
     reset: rebuild,
+    close: closeTakeover,   // what the × and Esc call; hides, keeps the field
+    open: openTakeover,     // counterpart, for a host that gates when it shows
     confetti: burst,   // guarded wrapper, not window.confetti directly
     balloonsRemaining: balloonsRemaining,
     popModes: POP_MODES,
     setPopMode: setPopMode,
+    popSteps: POP_STEPS,   // the proximity counts, indexed by config.popLevel
     pointerModes: POINTER_MODES,
     setPointer: setPointer,
 
@@ -945,7 +1203,8 @@
         countBand: MIN_BALLOONS + "-" + MAX_BALLOONS + " (grows to " +
                    HARD_MAX_BALLOONS + " above " + MAX_BALLOON_PX + "px)",
         popMode: CONFIG.popMode,
-        popLayers: CONFIG.popLayers,
+        popLevel: CONFIG.popLevel,
+        popCount: popCount() + " of " + POP_STEPS.join("/"),
         devicePixelRatio: window.devicePixelRatio || 1,
         pointerMode: CONFIG.pointer,
         userAgent: navigator.userAgent
@@ -959,6 +1218,8 @@
       layer.removeEventListener("click", onClick);
       root.removeEventListener("pointermove", onPointerMove);
       root.removeEventListener("pointerout", onPointerOut);
+      if (closeBtn) closeBtn.removeEventListener("click", closeTakeover);
+      document.removeEventListener("keydown", onKeydown);
       if (ptrRaf !== null) cancelAnimationFrame(ptrRaf);
       ptrRaf = null;
       if (resizeRaf !== null) cancelAnimationFrame(resizeRaf);
