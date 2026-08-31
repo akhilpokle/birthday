@@ -226,9 +226,13 @@ have been silently inert once those keys left `CONFIG`.
 
 Current `CONFIG`: `balloonScale 1.78`, 12° tilt, 0.17 scatter, 30ms frames,
 2px/ms wave, confetti 40 at size 1 / velocity 200, pop mode `colour`, pointer
-`default`. **`balloonScale`, `MAX_BALLOON_PX` and `HARD_MAX_BALLOONS` have not
-been confirmed by eye** — 1.78 was chosen to reproduce the 320px balloons
-approved at 1440×900; the other two are unreviewed defaults.
+`default`.
+
+`balloonScale 1.78`, `MAX_BALLOON_PX 360` and `HARD_MAX_BALLOONS 110` were
+**accepted on 2026-08-21** on the strength of the measurements above. Worth
+recording that this was a sign-off on the numbers, not on the rendering —
+nobody had viewed the field at these settings at the time. If the density ever
+looks wrong, `balloonScale` is the first dial, `MAX_BALLOON_PX` the second.
 
 Note this **invalidates any config JSON saved before 2026-08-21** — `maxBalloons`
 and `balloonSize` no longer exist and are silently ignored by `setConfig()`. Use

@@ -108,12 +108,52 @@
   cursor: url('Assets/round-pin-64.png') 0 63, pointer;
 }
 
-/* The system cursor is hidden only once the crosshair is actually tracking
-   (data-bday-cursor, set on first pointermove), so a script failure can't leave
-   the user with no cursor. Fine pointers only: on touch there's nothing to
-   replace. */
+/* The system cursor is hidden only once a replacement is actually tracking
+   (data-bday-cursor for the crosshair, data-bday-pinlive for the pin), so a
+   script failure can't leave the user with no cursor. In the pin's case the
+   fallback is better still: the native cursor rule above stays in force, so a
+   failure degrades to a static pin rather than nothing.
+   Fine pointers only: on touch there's nothing to replace. */
 @media (hover: hover) and (pointer: fine) {
   .bday_root[data-bday-pointer="crosshair"][data-bday-cursor="1"] { cursor: none; }
+  .bday_root[data-bday-pointer="default"][data-bday-pinlive="1"] .bday_balloon { cursor: none; }
+}
+
+/* Tracked pin. A native cursor cannot animate — the browser hands the OS a
+   static bitmap and renders only the first frame even of an animated image —
+   so the press needs a real element following the pointer. */
+.bday_pin {
+  position: absolute;
+  left: 0; top: 0;
+  width: 64px;    /* must match round-pin-64.png and PIN_HOTSPOT_Y */
+  height: 64px;
+  pointer-events: none;
+  /* Above the crosshair layer (300) and well above the balloons' inline
+     z-index (1..Z_LEVELS). Without this it inherits `auto` and paints behind
+     every balloon, which is where a cursor must never be. */
+  z-index: 310;
+}
+.bday_pin[hidden] { display: none; }
+
+/* Two elements on purpose. The wrapper carries the pointer position, the art
+   carries the press. They cannot share one transform: the transition below
+   would then apply to the position too, easing the pin 90ms behind the mouse
+   on every move. */
+.bday_pin-art {
+  display: block;
+  width: 100%;
+  height: 100%;
+  transition: transform 90ms ease-out;
+}
+
+/* Press driven entirely by :has() — no pointerdown/up/cancel handlers, and no
+   state to unwind in destroy(). Down-left, along the direction the tip already
+   points, so it reads as pushing the pin in rather than sliding it.
+   If :has() is unsupported the pin simply doesn't animate; it still tracks. */
+.bday_root:has(.bday_balloon:active) .bday_pin-art { transform: translate(-4px, 4px); }
+
+@media (prefers-reduced-motion: reduce) {
+  .bday_pin-art { transition-duration: 0ms; }
 }
 
 .bday_pointer {
@@ -222,6 +262,12 @@
     <span class="bday_rule bday_rule-v" id="bday_ruleT"></span>
     <span class="bday_rule bday_rule-v" id="bday_ruleB"></span>
     <img class="bday_crosshair" id="bday_crosshair" src="Assets/crosshair.svg" alt="" />
+  </div>
+
+  <!-- Tracked pin, shown over balloons in "default" mode. Lives outside
+       .bday_pointer because that layer is owned by the crosshair. -->
+  <div class="bday_pin" id="bday_pin" aria-hidden="true" hidden>
+    <img class="bday_pin-art" src="Assets/round-pin-64.png" alt="" />
   </div>
 </div>
 
@@ -499,10 +545,46 @@
       "translate(" + (ptrX - GAP) + "px," + (ptrY - GAP) + "px)";
   }
 
+  // ── tracked pin ───────────────────────────────────────────────────────
+  // Only in "default" mode, and only while the pointer is over a balloon.
+  // The pin's tip sits at (0, PIN_HOTSPOT_Y) inside the image, so the wrapper
+  // is placed that far above the pointer to put the tip on it.
+  var PIN_HOTSPOT_Y = 63;   // tip's y inside the 64px art, from its alpha
+
+  var pinEl = document.getElementById("bday_pin");
+  var pinLive = false;
+
+  function showPin(on) {
+    if (on === pinLive) return;
+    pinLive = on;
+    pinEl.hidden = !on;
+    if (on) root.setAttribute("data-bday-pinlive", "1");
+    else root.removeAttribute("data-bday-pinlive");
+  }
+
   function onPointerMove(e) {
-    if (CONFIG.pointer !== "crosshair") return;
-    // Touch would light the crosshair up at the last tap and strand it there.
+    // Touch would light either pointer up at the last tap and strand it there.
     if (e.pointerType === "touch") return;
+
+    if (CONFIG.pointer === "default") {
+      // e.target is the balloon itself: the layer is pointer-events:none and
+      // the pin is too, so nothing else can intercept.
+      var over = !!(e.target && e.target.classList &&
+                    e.target.classList.contains("bday_balloon"));
+      showPin(over);
+      if (over) {
+        // Written straight through, no rAF batching. That's worth it for the
+        // crosshair, which writes five elements per move; this writes one
+        // transform, and pointermove is already coalesced to about a frame.
+        var lr = layer.getBoundingClientRect();
+        pinEl.style.transform = "translate(" + (e.clientX - lr.left) + "px," +
+                                (e.clientY - lr.top - PIN_HOTSPOT_Y) + "px)";
+      }
+      return;
+    }
+    showPin(false);
+
+    if (CONFIG.pointer !== "crosshair") return;
     var r = layer.getBoundingClientRect();
     ptrX = e.clientX - r.left;
     ptrY = e.clientY - r.top;
@@ -521,6 +603,7 @@
     ptrLive = false;
     ptrLayer.hidden = true;
     root.removeAttribute("data-bday-cursor");
+    showPin(false);
   }
 
   // The count band. Not in CONFIG: these bound the design rather than tune it,
@@ -567,6 +650,8 @@
       root.removeAttribute("data-bday-cursor");
       if (ptrRaf !== null) { cancelAnimationFrame(ptrRaf); ptrRaf = null; }
     }
+    // The pin belongs to "default" only; it reappears on the next move there.
+    if (mode !== "default") showPin(false);
     return mode;
   }
 

@@ -184,9 +184,12 @@ build: screenshots timed out all session, timers were throttled to ~1Hz, and
 `requestAnimationFrame` was suspended entirely.
 
 - [ ] **Nothing has been confirmed by eye.** Not the gradient, not the balloon
-      density, not the pop, not the pushpin cursor. Three sizing numbers are
-      unreviewed defaults: `balloonScale 1.78` (chosen to reproduce the approved
-      320px at 1440×900), `MAX_BALLOON_PX 360` and `HARD_MAX_BALLOONS 110`.
+      density, not the pop, not the pushpin cursor. The three sizing numbers
+      (`balloonScale 1.78`, `MAX_BALLOON_PX 360`, `HARD_MAX_BALLOONS 110`) were
+      accepted on 2026-08-21 **on the measurements, without a visual review** —
+      so they are settled, not verified. Still worth one honest look before
+      handover, since every claim about this component is a number rather than
+      an observation.
 - [ ] **Pop cadence unmeasured.** `frameMs: 30` means 5 frames in 120ms. Whether the
       crack and shatter stages are perceptible at that speed is unknown.
 - [ ] **The reduced-motion path is code-inspected only** — the media query couldn't
@@ -210,6 +213,20 @@ build: screenshots timed out all session, timers were throttled to ~1Hz, and
 ---
 
 ## 6. Packaging — none of this exists yet
+
+**Do these two before writing the handover README** — both change the code the
+README would describe, so doing them after means rewriting it.
+
+- [ ] **Reparent the root to `<body>` on init.** Conversion playbook §7:
+      `position: fixed` resolves against the nearest ancestor carrying a
+      `transform`, `filter` or `perspective`, and CMS themes commonly have one.
+      If the real theme does, the takeover is positioned inside that ancestor
+      instead of covering the window — and `.bday_root` is `fixed; inset: 0`, so
+      the whole component depends on this. ~10 lines. **This is the failure most
+      likely to surface on integration day**, when it is most expensive to find.
+- [ ] **Replace the hardcoded "Timothy"** with Liferay user context, and confirm
+      the theme actually serves Public Sans (the fragment declares it but must
+      not fetch a webfont itself — a strict CSP would block the CDN).
 
 - [ ] **Build script** to split `template.html` into the three fragment fields
       (`.html` / `.css` / `.js`). Currently one file; the split is still manual.
